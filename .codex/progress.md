@@ -15,7 +15,7 @@
 - Package/build systems: single Go module plus two frontend packages in `ui-dashboard/` and `ui-payment/`.
 - Runtime/deployment: Dockerfile plus `docker-compose.local.yml`; Postgres required; KMS can run embedded or standalone.
 - Workspace constraints:
-  - A baseline git commit for this autonomous session was created at `85ce575` (`chore: baseline before autonomous work`).
+  - A baseline git commit for this autonomous session was created at `7ec56de` (`chore: baseline before autonomous work`).
   - Docker is unavailable here.
   - `golangci-lint` is not installed, and the repo-pinned `v1.53.3` binary must be bootstrapped with a Go `1.20` toolchain on newer hosts.
   - Local Postgres is not reachable on `127.0.0.1:5432`.
@@ -55,6 +55,7 @@
 - [done] test/build/lint/type failure: re-ran repo-native backend/frontend build validation on the current baseline and all locally runnable build/lint checks passed.
 - [done] unfinished-work search: repeated route/manifests/code scanning confirmed no remaining in-scope local work beyond environment-blocked integration/lint/runtime validation.
 - [done] developer experience issue affecting completion: `make require-deps` and `make lint` now export the repo-targeted Go `1.20.14` toolchain plus `GOSUMDB=sum.golang.org` for `golangci-lint v1.53.3`, and README documents that repo-native lint setup on newer hosts.
+- [done] security/validation/data integrity issue: frontend external links opened with `target="_blank"` now also set `rel="noopener noreferrer"` in the shipped dashboard and payment UIs.
 - [blocked] test/build/lint/type failure: full backend integration tests require reachable Postgres or a valid `OXYGEN_TEST_DB_DATA_SOURCE`.
 - [blocked] test/build/lint/type failure: full backend lint still requires a local `golangci-lint v1.53.3` binary and a long analysis window; the toolchain/panic issue is fixed, but a bounded 10-minute local run did not finish in this workspace.
 - [blocked] developer experience issue affecting completion: an isolated embedded-Postgres bootstrap attempt via a temporary nested Go module was not viable in this workspace because subsequent `go env` / `go build` commands stalled in host-level I/O wait before a local Postgres could be launched.
@@ -123,6 +124,14 @@
 - `TMPDIR=/workspace/oxygen/tmp/go go test ./internal/server/http/paymentapi -run Test -count=1 -timeout=60s` -> failed again in `0.296s` with the expected Postgres connection-refused panic and guidance to use `OXYGEN_TEST_DB_DATA_SOURCE`.
 - `make -n lint` -> passed again on this iteration and still expands to `GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org golangci-lint run -v ./...`.
 - `docker-compose.local.yml` and `config/oxygen.example.yml` inspection -> confirmed the documented local topology still matches the repo: one app container, Postgres, file-based config fallback, and provider credentials supplied via env/config.
+- `git commit -m "chore: baseline before autonomous work"` -> passed for this session (`7ec56de`).
+- `rg -n 'target="_blank"' ui-dashboard/src ui-payment/src web README.md` -> surfaced three unsafe frontend external links plus one already-safe blockchain-explorer link.
+- `cd ui-dashboard && make lint && make build` -> passed after the external-link hardening patch.
+- `cd ui-payment && make lint && make build` -> passed after the external-link hardening patch; Vite emitted only the existing `caniuse-lite` and large-chunk warnings.
+- `rg -n 'target="_blank"' ui-dashboard/src ui-payment/src -A2 -B1` -> confirmed every shipped frontend `_blank` link now includes `rel="noopener noreferrer"`.
+- `rg -n --glob '!pkg/api-*' --glob '!web/redoc/**' --glob '!**/package-lock.json' --glob '!**/*.test.*' --glob '!*_test.go' 'TODO|FIXME|XXX|HACK|not implemented|placeholder|stub|mock-only|throw new Error|panic\(' cmd internal ui-dashboard/src ui-payment/src web` -> re-run on this iteration and again only surfaced expected guard/setup panics, the known Ant Design workaround TODO, and the BTC broadcaster stub outside the active supported-currency set.
+- `rg -n 'target="_blank"' ui-dashboard/src ui-payment/src web README.md` -> re-run on this iteration; the only production-path hit not touched in this patch was the existing blockchain-explorer link that already includes `rel="noopener noreferrer"`.
+- Inspection of `ui-dashboard/src/components/withdraw-desc-card/withdraw-desc-card.tsx`, `ui-dashboard/src/components/webhook-settings-form/webhook-settings-form.tsx`, and `ui-payment/src/App.tsx` -> confirmed all shipped frontend `_blank` links are now hardened and no additional code change was justified.
 
 ## Unresolved Blockers
 
@@ -138,9 +147,12 @@
 - Remaining work is blocked by missing local services/tools rather than clearly justified in-repo feature or flow gaps.
 - A fresh iteration on `2026-04-19 13:37:03Z` revalidated the repo assessment, package manifests, CI commands, and unfinished-work markers; it did not surface a new in-scope product bug or missing feature, only deeper confirmation that the remaining backend gaps are environmental.
 - A fresh iteration on `2026-04-19 13:41:31Z` rechecked the route surfaces, stack manifests, local config/runtime docs, unfinished-work markers, and focused Go tests; it again surfaced no new in-scope product bug or missing feature.
+- A fresh iteration on `2026-04-19 13:51:02Z` found one remaining in-scope security hardening gap in shipped frontend paths (`target="_blank"` without `rel`), fixed it conservatively, and revalidated both frontend apps with repo-native `make lint && make build`.
+- A final stop-check on `2026-04-19 13:51:02Z` confirmed that the external-link hardening patch fully covered the shipped frontend surfaces and that no additional justified in-scope repo changes remain beyond the existing environment blockers.
+- A final verification pass on `2026-04-19 13:53:45Z` re-ran the unfinished-work scan and inspected the only remaining `_blank` production-path hit; it was already safe, so no further in-scope change was warranted.
 - Anti-premature-stop check for this iteration:
   - Project type and stack verified from README, Makefiles, workflow files, manifests, and code layout.
   - Intended dev workflow verified from CI and documented commands.
   - Unfinished-work markers searched again after the baseline commit.
-  - Major locally runnable flows were rechecked on the current baseline, and no new in-scope repo change was justified beyond earlier completed DX fixes.
+  - Major locally runnable flows were rechecked on the current baseline; the only newly surfaced in-scope issue was the external-link hardening gap, and it is now fixed and revalidated.
   - Remaining gaps are either environment-blocked (`Postgres`, `Docker`, workspace Go I/O stalls, provider credentials) or outside the current supported product scope.

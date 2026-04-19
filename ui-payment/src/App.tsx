@@ -103,7 +103,12 @@ const App: React.FC = () => {
                             <div className="pt-2 pb-4 text-sm sm:hidden">
                                 <p className="text-center text-gray-500">
                                     Powered by self-hosted{" "}
-                                    <a className="color-oxygen" target="_blank" href="https://o2pay.co">
+                                    <a
+                                        className="color-oxygen"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        href="https://o2pay.co"
+                                    >
                                         OxygenPay
                                     </a>
                                 </p>

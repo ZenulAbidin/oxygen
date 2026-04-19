@@ -351,7 +351,7 @@ const App: React.FC = () => {
                                         {(routeCtx: RouteContextType) => (
                                             <div onClick={routeCtx.isMobile ? item.onClick : undefined}>
                                                 {isLink && (
-                                                    <a href={item.path} target="_blank">
+                                                    <a href={item.path} target="_blank" rel="noopener noreferrer">
                                                         {item.name} <LinkOutlined />
                                                     </a>
                                                 )}
