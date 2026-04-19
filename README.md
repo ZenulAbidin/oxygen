@@ -81,6 +81,7 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 ### Validation
 
 - Backend: `make build`, `make test`, `make lint`
+- Install backend CLI tooling with `make require-deps`; on hosts newer than Go `1.20`, use `GOTOOLCHAIN=go1.20.14 make require-deps` so `golangci-lint v1.53.3` matches CI.
 - Dashboard UI: `cd ui-dashboard && npm ci && make lint && make build`
 - Payment UI: `cd ui-payment && npm ci --ignore-scripts && make lint && make build`
 - Backend tests expect Postgres to be reachable for integration tests. By default they use `127.0.0.1` as `postgres`; override with `OXYGEN_TEST_DB_DATA_SOURCE` when needed.
