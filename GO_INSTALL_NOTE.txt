@@ -1,0 +1,14 @@
+Go is installed locally for the `node` user.
+
+Locations:
+- Go root: /home/node/.local/go
+- Go binary: /home/node/.local/go/bin/go
+- Default GOPATH: /home/node/go
+- User-installed Go tools: /home/node/go/bin
+
+Shell setup:
+- PATH entries were added to /home/node/.bashrc and /home/node/.profile
+- Open a new shell, or run: source ~/.bashrc
+
+Verification:
+- /home/node/.local/go/bin/go version
