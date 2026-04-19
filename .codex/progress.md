@@ -15,17 +15,17 @@
 - Package/build systems: single Go module plus two frontend packages in `ui-dashboard/` and `ui-payment/`.
 - Runtime/deployment: Dockerfile plus `docker-compose.local.yml`; Postgres required; KMS can run embedded or standalone.
 - Workspace constraints:
-  - A baseline git commit for this autonomous session was created at `b87865a` (`chore: baseline before autonomous work`).
+  - A baseline git commit for this autonomous session was created at `afd147b` (`chore: baseline before autonomous work`).
   - Docker is unavailable here.
   - `golangci-lint` is not installed.
   - Local Postgres is not reachable on `127.0.0.1:5432`.
-  - `/tmp` is a small tmpfs in this workspace, so Go validation is more reliable with `TMPDIR=/workspace/.tmp-go`.
+  - Direct `go test` invocations still need an executable temp directory (`TMPDIR=/workspace/oxygen/tmp/go` here), but the repo-native `make build` and `make test` commands now handle that automatically.
   - Real blockchain/provider flows still require external credentials (`TATUM_*`, `TRONGRID_*`).
 
 ## Likely Validation Commands
 
-- Backend build: `TMPDIR=/workspace/.tmp-go make build`
-- Backend tests: `TMPDIR=/workspace/.tmp-go make test`
+- Backend build: `make build`
+- Backend tests: `make test`
 - Backend lint: `make lint`
 - Dashboard UI:
   - `cd ui-dashboard && npm ci`
@@ -39,7 +39,7 @@
   - `docker-compose -f docker-compose.local.yml up`
   - or `./bin/oxygen serve-web --config=$(pwd)/config/oxygen.yml`
 - Backend test DB override:
-  - `OXYGEN_TEST_DB_DATA_SOURCE=postgres://... TMPDIR=/workspace/.tmp-go go test ./...`
+  - `OXYGEN_TEST_DB_DATA_SOURCE=postgres://... TMPDIR=/workspace/oxygen/tmp/go go test ./...`
 
 ## Backlog
 
@@ -49,6 +49,7 @@
 - [done] developer experience issue affecting completion: added `docker.env.example` and documented the Docker env-file workflow.
 - [done] test/build/lint/type failure: both frontends pass repo-native `make lint` and `make build`.
 - [done] developer experience issue affecting completion: backend test DB setup now supports `OXYGEN_TEST_DB_DATA_SOURCE`, uses a fast connection timeout, reports clear Postgres connection errors, and exposes a focused config-resolution unit test.
+- [done] developer experience issue affecting completion: backend `make build` and `make test` now use a repo-local Go temp directory, so validations are not blocked by a `noexec` host `/tmp`.
 - [done] unfinished-work search: targeted search found only a UI workaround TODO and a BTC broadcast stub; BTC broadcast is out of current scope because shipped currencies do not include BTC.
 - [done] test/build/lint/type failure: re-ran repo-native backend/frontend build validation on the current baseline and all locally runnable build/lint checks passed.
 - [blocked] test/build/lint/type failure: full backend integration tests require reachable Postgres or a valid `OXYGEN_TEST_DB_DATA_SOURCE`.
@@ -72,10 +73,19 @@
 - `TMPDIR=/workspace/.tmp-go go test ./internal/test -run TestNewDB -count=1 -timeout=30s` -> failed quickly with a clear `127.0.0.1:5432` connection-refused error and guidance to use `OXYGEN_TEST_DB_DATA_SOURCE`.
 - `TMPDIR=/workspace/.tmp-go make build` -> passed.
 - `TMPDIR=/workspace/.tmp-go make test` -> started a full `go test -race` sweep; not useful to keep waiting once the focused Postgres-dependent failure mode had already been confirmed.
-- `git commit -m "chore: baseline before autonomous work"` -> passed (`b87865a`).
+- `git commit -m "chore: baseline before autonomous work"` -> passed (`afd147b`).
 - `TMPDIR=/workspace/.tmp-go make build` -> passed on the current baseline.
 - `cd ui-dashboard && make lint && make build` -> passed on the current baseline.
 - `cd ui-payment && make lint && make build` -> passed on the current baseline.
+- `go test ./internal/server/http/paymentapi -run Test -count=1` -> failed in this workspace before execution because `/tmp` is `noexec` (`fork/exec /tmp/go-build.../paymentapi.test: permission denied`).
+- `go test ./internal/server/http/merchantapi -run Test -count=1` -> failed in this workspace before execution because `/tmp` is `noexec` (`fork/exec /tmp/go-build.../merchantapi.test: permission denied`).
+- `go test ./internal/server/http/webhook -run Test -count=1` -> failed in this workspace before execution because `/tmp` is `noexec` (`fork/exec /tmp/go-build.../webhook.test: permission denied`).
+- `make help` -> passed after the Makefile temp-dir change.
+- `make build` -> passed after the Makefile temp-dir change and now uses `TMPDIR="/workspace/oxygen/tmp/go"` internally.
+- `TMPDIR=/workspace/oxygen/tmp/go go test ./internal/server/http/paymentapi -run Test -count=1` -> failed quickly with the expected Postgres connection-refused error.
+- `TMPDIR=/workspace/oxygen/tmp/go go test ./internal/server/http/merchantapi -run Test -count=1` -> failed quickly with the expected Postgres connection-refused error.
+- `TMPDIR=/workspace/oxygen/tmp/go go test ./internal/server/http/webhook -run Test -count=1` -> failed quickly with the expected Postgres connection-refused error.
+- `make test` -> now runs with `TMPDIR="/workspace/oxygen/tmp/go"`; focused package tests confirm the remaining failure mode is missing Postgres rather than temp-binary execution.
 - Targeted unfinished-work verification:
   - `rg -n 't\\.Skip|Skip\\(|not implemented yet|panic\\(\".*TODO|TODO:' ...` -> only surfaced generated-client TODOs, an upstream Ant Design workaround, and the BTC broadcaster stub.
   - `rg -n 'BTC|bitcoin|btc' ...` plus inspection of `internal/service/blockchain/currencies.json` and `ui-dashboard/src/types/index.ts` -> BTC is present in lower-level wallet/OpenAPI surfaces but not in the active supported-currency set used by merchant/payment flows.
@@ -95,5 +105,5 @@
   - Project type and stack verified from README, Makefiles, workflow files, manifests, and code layout.
   - Intended dev workflow verified from CI and documented commands.
   - Unfinished-work markers searched again after the baseline commit.
-  - Major locally runnable flows validated: backend build plus both frontend lint/build pipelines.
+  - Major locally runnable flows validated: backend build plus both frontend lint/build pipelines; backend tests now fail only on the documented Postgres dependency.
   - Remaining gaps are either environment-blocked (`Postgres`, `Docker`, `golangci-lint`, provider credentials) or outside the current supported product scope.

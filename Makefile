@@ -4,6 +4,7 @@ VERSION=$(shell git describe --tags --dirty --always)
 COMMIT=$(shell git rev-parse HEAD)
 EMBED_FRONTEND ?= 1
 OXYGEN_CONFIG ?= $(if $(wildcard config/oxygen.yml),$(CURDIR)/config/oxygen.yml,$(CURDIR)/config/oxygen.example.yml)
+GO_TMPDIR ?= $(CURDIR)/tmp/go
 
 # The -w turns off DWARF debugging information
 # The -s turns off generation of the Go symbol table
@@ -51,7 +52,8 @@ mock: ## Generate mocks (not included in codegen command)
 	mockery --dir internal/service/processing --all --output internal/test/mock/ --outpkg mock
 
 build: ## Build app
-	go build ${LDFLAGS} -o bin/oxygen main.go
+	@mkdir -p "$(GO_TMPDIR)"
+	TMPDIR="$(GO_TMPDIR)" go build ${LDFLAGS} -o bin/oxygen main.go
 
 run: ## Run application (without building)
 	./bin/oxygen serve-web --config=$(OXYGEN_CONFIG)
@@ -68,7 +70,8 @@ local-kms: codegen build run-kms ## Build & Run KMS
 local-scheduler: codegen build run-scheduler ## Build & Run Scheduler
 
 test: ## Run tests with race detector
-	@go test -race ${PKG_LIST}
+	@mkdir -p "$(GO_TMPDIR)"
+	@TMPDIR="$(GO_TMPDIR)" go test -race ${PKG_LIST}
 
 require-deps: ## Require cli tools for development
 	go install github.com/rubenv/sql-migrate/...@latest
