@@ -1,28 +1,28 @@
 .PHONY: help
 
-include .env
+-include .env.example
+-include .env
+
+NODE_OPTIONS ?= --max-old-space-size=5000
+export NODE_OPTIONS
 
 help: ## List of commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 precommit-ts: ## Precommit TS
-	NODE_OPTIONS="--max-old-space-size=5000" npx tsc \
-		--noEmit \
-		--incremental \
-		--skipLibCheck \
-		--project ./tsconfig.json;
+	npx tsc --noEmit --incremental --skipLibCheck --project ./tsconfig.json
 
 verify-ts: ## Verify TS
 	@set -eu; status=0; \
 	echo 'Verifying src/'; \
-	NODE_OPTIONS="--max-old-space-size=5000" npx tsc --noEmit --skipLibCheck -p ./tsconfig.json || status=1; \
+	npx tsc --noEmit --skipLibCheck -p ./tsconfig.json || status=1; \
 	echo 'Verification finished'; \
 	exit $$status;
 
 lint-es: ## Lint ES
 	@set -eu; \
 	echo 'Linting via ESLint'; \
-	NODE_OPTIONS="--max-old-space-size=5000" npx eslint src --ext .ts,.tsx,.js
+	npx eslint src --ext .ts,.tsx,.js
 
 lint: ## Lint
 	make -j3 verify-ts lint-es

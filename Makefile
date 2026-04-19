@@ -3,13 +3,14 @@
 VERSION=$(shell git describe --tags --dirty --always)
 COMMIT=$(shell git rev-parse HEAD)
 EMBED_FRONTEND ?= 1
+OXYGEN_CONFIG ?= $(if $(wildcard config/oxygen.yml),$(CURDIR)/config/oxygen.yml,$(CURDIR)/config/oxygen.example.yml)
 
 # The -w turns off DWARF debugging information
 # The -s turns off generation of the Go symbol table
 # The -X adds a string value definition of the form importpath.name=value
 LDFLAGS=-ldflags "-w -s -X 'main.gitVersion=${VERSION}' -X 'main.gitCommit=${COMMIT}' -X 'main.embedFrontend=${EMBED_FRONTEND}'"
 
-PKG_LIST := $(shell go list ./... | grep -v pkg/api- | grep -v internal/db | tr "\n" " ")
+PKG_LIST = $(shell go list ./... | grep -v pkg/api- | grep -v internal/db | tr "\n" " ")
 
 help: ## List of commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
@@ -53,13 +54,13 @@ build: ## Build app
 	go build ${LDFLAGS} -o bin/oxygen main.go
 
 run: ## Run application (without building)
-	./bin/oxygen serve-web --config=$$(pwd)/config/oxygen.yml
+	./bin/oxygen serve-web --config=$(OXYGEN_CONFIG)
 
 run-kms: ## Run KMS (without building)
-	./bin/oxygen serve-kms --config=$$(pwd)/config/oxygen.yml
+	./bin/oxygen serve-kms --config=$(OXYGEN_CONFIG)
 
 run-scheduler: ## Run Scheduler (without building)
-	./bin/oxygen run-scheduler --config=$$(pwd)/config/oxygen.yml
+	./bin/oxygen run-scheduler --config=$(OXYGEN_CONFIG)
 
 local: codegen build run ## Build & Run App
 

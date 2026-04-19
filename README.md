@@ -64,6 +64,26 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 - Support for testnets
 - It's only 1 binary!
 
+## Development
+
+### Stack
+
+- Go `1.20`
+- Node.js + npm for the two Vite frontends in `ui-dashboard/` and `ui-payment/`
+- Postgres for the main application database
+
+### Local Config
+
+- The repo ships `config/oxygen.example.yml` as the base config.
+- Local `make run`, `make run-kms`, and `make run-scheduler` commands will use `config/oxygen.yml` when present and otherwise fall back to `config/oxygen.example.yml`.
+- `docker-compose.local.yml` expects a `docker.env` file; start from `docker.env.example` and replace the placeholder provider credentials.
+
+### Validation
+
+- Backend: `make build`, `make test`, `make lint`
+- Dashboard UI: `cd ui-dashboard && npm ci && make lint && make build`
+- Payment UI: `cd ui-payment && npm ci --ignore-scripts && make lint && make build`
+
 
 ## Roadmap 🛣️
 

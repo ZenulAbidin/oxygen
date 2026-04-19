@@ -21,6 +21,7 @@ jobs:
         run: npx tsc && npx vite build --base=${{ env.VITE_ROOTPATH }}
         working-directory: ui-payment
         env:
+          NODE_OPTIONS: '--max-old-space-size=5000'
           VITE_BACKEND_HOST: '//'
           VITE_SUPPORT_EMAIL: 'help@site.com'
           VITE_ROOTPATH: '/p/'
@@ -46,6 +47,7 @@ jobs:
         run: npx tsc && npx vite build --base=${{ env.VITE_ROOTPATH }}
         working-directory: ui-dashboard
         env:
+          NODE_OPTIONS: '--max-old-space-size=5000'
           VITE_BACKEND_HOST: '//'
           VITE_ROOTPATH: '/dashboard/'
 
