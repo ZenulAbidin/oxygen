@@ -5,6 +5,7 @@ COMMIT=$(shell git rev-parse HEAD)
 EMBED_FRONTEND ?= 1
 OXYGEN_CONFIG ?= $(if $(wildcard config/oxygen.yml),$(CURDIR)/config/oxygen.yml,$(CURDIR)/config/oxygen.example.yml)
 GO_TMPDIR ?= $(CURDIR)/tmp/go
+GOLANGCI_LINT_TOOLCHAIN ?= go1.20.14
 
 # The -w turns off DWARF debugging information
 # The -s turns off generation of the Go symbol table
@@ -78,7 +79,7 @@ require-deps: ## Require cli tools for development
 	go install github.com/kyleconroy/sqlc/cmd/sqlc@latest
 	go install github.com/cespare/reflex@latest
 	go install github.com/vektra/mockery/v2@v2.32.0
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3
+	GOTOOLCHAIN=$(GOLANGCI_LINT_TOOLCHAIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3
     # todo go-swagger as swagger
 
 docker-build: ## Build docker image for Oxygen
