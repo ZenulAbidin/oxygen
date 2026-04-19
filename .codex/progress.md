@@ -20,6 +20,7 @@
   - `golangci-lint` is not installed, and the repo-pinned `v1.53.3` binary must be bootstrapped with a Go `1.20` toolchain on newer hosts.
   - Local Postgres is not reachable on `127.0.0.1:5432`.
   - Direct `go test` invocations still need an executable temp directory (`TMPDIR=/workspace/oxygen/tmp/go` here), but the repo-native `make build` and `make test` commands now handle that automatically.
+  - Further ad hoc Go-based environment bootstrap in this workspace now intermittently stalls in uninterruptible I/O (`D`) state even for simple helper-module commands like `go env` and `go build`, which limits additional backend validation attempts that are not already covered by repo-native commands.
   - Real blockchain/provider flows still require external credentials (`TATUM_*`, `TRONGRID_*`).
 
 ## Likely Validation Commands
@@ -56,6 +57,7 @@
 - [done] developer experience issue affecting completion: `make require-deps` and `make lint` now export the repo-targeted Go `1.20.14` toolchain plus `GOSUMDB=sum.golang.org` for `golangci-lint v1.53.3`, and README documents that repo-native lint setup on newer hosts.
 - [blocked] test/build/lint/type failure: full backend integration tests require reachable Postgres or a valid `OXYGEN_TEST_DB_DATA_SOURCE`.
 - [blocked] test/build/lint/type failure: full backend lint still requires a local `golangci-lint v1.53.3` binary and a long analysis window; the toolchain/panic issue is fixed, but a bounded 10-minute local run did not finish in this workspace.
+- [blocked] developer experience issue affecting completion: an isolated embedded-Postgres bootstrap attempt via a temporary nested Go module was not viable in this workspace because subsequent `go env` / `go build` commands stalled in host-level I/O wait before a local Postgres could be launched.
 - [blocked] broken flow: full end-to-end payment processing and blockchain provider flows require real provider credentials/services.
 - [blocked] broken flow: Docker-based runtime validation is unavailable because Docker is not installed here.
 - [out_of_scope] missing in-scope feature: README roadmap items that are not already represented by code or broken product paths.
@@ -107,25 +109,38 @@
 - `make -n lint` -> passed and now expands to `GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org golangci-lint run -v ./...`.
 - `make -n require-deps` -> passed and now expands the repo-native lint bootstrap command as `GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3`.
 - `timeout 600s bash -lc 'PATH=\"/workspace/oxygen/tmp/bin:$PATH\" GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org make lint'` -> no longer panicked and reached real analysis, but timed out after 10 minutes with no lint findings emitted in this workspace.
+- `PATH=/workspace/oxygen/tmp/bin:$PATH GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org timeout 1200s make lint` -> progressed past config/package loading, then stalled in host-level I/O wait without emitting findings; the stuck process was terminated rather than left running indefinitely.
+- Temporary nested-module environment bootstrap under `.codex/embedded-pg-helper/` -> attempted to launch an isolated embedded Postgres for backend tests, but `go run`, `go env`, and `go build` in that helper module stalled in uninterruptible I/O state before any local Postgres process or bootstrap artifacts were created, so the helper was removed and the attempt was recorded as an environment blocker.
 - Targeted unfinished-work verification:
   - `rg -n 't\\.Skip|Skip\\(|not implemented yet|panic\\(\".*TODO|TODO:' ...` -> only surfaced generated-client TODOs, an upstream Ant Design workaround, and the BTC broadcaster stub.
   - `rg -n 'BTC|bitcoin|btc' ...` plus inspection of `internal/service/blockchain/currencies.json` and `ui-dashboard/src/types/index.ts` -> BTC is present in lower-level wallet/OpenAPI surfaces but not in the active supported-currency set used by merchant/payment flows.
   - `rg -n --glob '!pkg/api-*' --glob '!web/redoc/**' --glob '!**/package-lock.json' --glob '!**/*.test.*' --glob '!internal/test/**' --glob '!*_test.go' 'TODO|FIXME|XXX|HACK|not implemented|placeholder|stub|mock-only|throw new Error|panic\\(' cmd internal ui-dashboard/src ui-payment/src web` -> only surfaced expected guard/setup panics, the known Ant Design workaround TODO, and the BTC broadcaster stub outside the active supported-currency set.
+- `make help` -> passed again on this iteration.
+- `make build` -> started from the repo-native command on this iteration but entered the same long-running no-output state seen in prior workspace I/O stalls, so it was terminated rather than left hanging indefinitely.
+- `cd ui-dashboard && make lint && make build` -> started on this iteration but was terminated after the same long-running no-output workspace behavior; earlier successful baseline runs still stand as the last completed local frontend validation.
+- `cd ui-payment && make lint && make build` -> started on this iteration but was terminated after the same long-running no-output workspace behavior; earlier successful baseline runs still stand as the last completed local frontend validation.
+- `TMPDIR=/workspace/oxygen/tmp/go go test ./internal/test -run TestTestDatabaseConfig -count=1 -timeout=120s` -> passed again on this iteration.
+- `TMPDIR=/workspace/oxygen/tmp/go go test ./internal/server/http/paymentapi -run Test -count=1 -timeout=60s` -> failed again in `0.296s` with the expected Postgres connection-refused panic and guidance to use `OXYGEN_TEST_DB_DATA_SOURCE`.
+- `make -n lint` -> passed again on this iteration and still expands to `GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org golangci-lint run -v ./...`.
+- `docker-compose.local.yml` and `config/oxygen.example.yml` inspection -> confirmed the documented local topology still matches the repo: one app container, Postgres, file-based config fallback, and provider credentials supplied via env/config.
 
 ## Unresolved Blockers
 
 - No reachable Postgres service in this workspace.
 - Docker is unavailable.
-- Full backend lint remains time-consuming in this workspace even after the toolchain fix; the repo-native bootstrap path is now correct, but a 10-minute bounded run did not finish.
+- Full backend lint remains blocked by workspace behavior even after the toolchain fix; a longer follow-up run progressed further but then stalled in host-level I/O wait without producing findings.
+- Additional local Postgres bootstrap attempts are blocked by the same workspace-level Go I/O stalls, so I could not safely turn the backend integration suite into a fully local validation flow from this container.
 - Real blockchain/provider credentials are unavailable.
 
 ## Scope Notes
 
 - Focus on repository-supported flows and operational completeness, not new roadmap features.
 - Remaining work is blocked by missing local services/tools rather than clearly justified in-repo feature or flow gaps.
+- A fresh iteration on `2026-04-19 13:37:03Z` revalidated the repo assessment, package manifests, CI commands, and unfinished-work markers; it did not surface a new in-scope product bug or missing feature, only deeper confirmation that the remaining backend gaps are environmental.
+- A fresh iteration on `2026-04-19 13:41:31Z` rechecked the route surfaces, stack manifests, local config/runtime docs, unfinished-work markers, and focused Go tests; it again surfaced no new in-scope product bug or missing feature.
 - Anti-premature-stop check for this iteration:
   - Project type and stack verified from README, Makefiles, workflow files, manifests, and code layout.
   - Intended dev workflow verified from CI and documented commands.
   - Unfinished-work markers searched again after the baseline commit.
-  - Major locally runnable flows were rechecked on the current baseline, and the only new in-scope improvement justified by repo evidence was making backend lint bootstrap/runtime repo-native for newer Go hosts and documenting it.
-  - Remaining gaps are either environment-blocked (`Postgres`, `Docker`, `golangci-lint`, provider credentials) or outside the current supported product scope.
+  - Major locally runnable flows were rechecked on the current baseline, and no new in-scope repo change was justified beyond earlier completed DX fixes.
+  - Remaining gaps are either environment-blocked (`Postgres`, `Docker`, workspace Go I/O stalls, provider credentials) or outside the current supported product scope.
