@@ -24,6 +24,10 @@ func Open(ctx context.Context, cfg Config, logger *zerolog.Logger) (*Connection,
 		return nil, errors.Wrap(err, "unable to parse db config")
 	}
 
+	return OpenConfig(ctx, dbConfig, logger)
+}
+
+func OpenConfig(ctx context.Context, dbConfig *pgxpool.Config, logger *zerolog.Logger) (*Connection, error) {
 	pgConnection, err := pgxpool.ConnectConfig(ctx, dbConfig)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to connect to pg database")

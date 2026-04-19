@@ -5,74 +5,79 @@
 - Inferred project type: mixed system; Go backend plus two Vite/React frontends for a self-hosted crypto payment gateway (`OxygenPay`).
 - Inferred product scope: merchant dashboard, hosted payment pages, payment links, balances, withdrawals, wallets/KMS, webhooks, and scheduler-backed processing.
 - Intended users: merchants/operators accepting crypto payments and administrators running the service self-hosted.
-- Current maturity: substantial implementation exists, but the repo is archived and has some operational/documentation rough edges.
+- Current maturity: substantial implementation exists; the repo is archived, and the remaining justified work is operational confidence rather than missing major product surfaces.
 
 ## Environment / Tooling Understanding
 
-- Languages: Go 1.20, TypeScript/React.
-- Backend framework/tooling: Cobra CLI, Echo server, sql-migrate, sqlc, go-swagger, golangci-lint.
-- Frontend tooling: Vite, TypeScript, ESLint, Prettier, npm with `package-lock.json`.
-- Package/build systems: Go modules, npm, Makefiles.
-- Runtime/deployment: Dockerfile plus `docker-compose.local.yml`; Postgres required; KMS may run embedded or standalone.
-- Monorepo shape: single Go module with two frontend packages (`ui-dashboard`, `ui-payment`).
-- Config/runtime blockers detected:
-  - Backend validation is blocked in this workspace because neither `go` nor Docker is installed.
-  - External provider secrets are needed for real blockchain operations (`TATUM_*`, `TRONGRID_*`), though many tests appear to use fakes.
+- Languages: Go (repo targets `1.20`; local toolchain reports `go1.26.2`) and TypeScript/React.
+- Backend framework/tooling: Cobra CLI, Echo server, Go modules, sql-migrate, sqlc, go-swagger, Makefile-driven workflows.
+- Frontend tooling: Vite, TypeScript, ESLint, Prettier, npm with committed lockfiles.
+- Package/build systems: single Go module plus two frontend packages in `ui-dashboard/` and `ui-payment/`.
+- Runtime/deployment: Dockerfile plus `docker-compose.local.yml`; Postgres required; KMS can run embedded or standalone.
+- Workspace constraints:
+  - Docker is unavailable here.
+  - `golangci-lint` is not installed.
+  - Local Postgres is not reachable on `127.0.0.1:5432`.
+  - `/tmp` is a small tmpfs in this workspace, so Go validation is more reliable with `TMPDIR=/workspace/.tmp-go`.
+  - Real blockchain/provider flows still require external credentials (`TATUM_*`, `TRONGRID_*`).
 
 ## Likely Validation Commands
 
-- Backend build: `make build`
-- Backend tests: `make test`
+- Backend build: `TMPDIR=/workspace/.tmp-go make build`
+- Backend tests: `TMPDIR=/workspace/.tmp-go make test`
 - Backend lint: `make lint`
-- Dashboard install/lint/typecheck/build:
+- Dashboard UI:
   - `cd ui-dashboard && npm ci`
   - `cd ui-dashboard && make lint`
   - `cd ui-dashboard && make build`
-- Payment install/lint/typecheck/build:
+- Payment UI:
   - `cd ui-payment && npm ci --ignore-scripts`
   - `cd ui-payment && make lint`
   - `cd ui-payment && make build`
 - Local runtime:
   - `docker-compose -f docker-compose.local.yml up`
-  - or `./bin/oxygen serve-web --config=$(pwd)/config/oxygen.yml` after preparing config
+  - or `./bin/oxygen serve-web --config=$(pwd)/config/oxygen.yml`
+- Backend test DB override:
+  - `OXYGEN_TEST_DB_DATA_SOURCE=postgres://... TMPDIR=/workspace/.tmp-go go test ./...`
 
 ## Backlog
 
-- [done] developer experience issue affecting completion: local run commands now fall back to the shipped `config/oxygen.example.yml`, and README documents the config path.
+- [done] developer experience issue affecting completion: local run commands fall back to the shipped `config/oxygen.example.yml`, and README documents the config path.
 - [done] developer experience issue affecting completion: top-level Makefile no longer eagerly runs `go list` for unrelated targets like `make help` and `make run`.
-- [done] developer experience issue affecting completion: frontend Makefiles now work without a committed `.env` by falling back to `.env.example`.
-- [done] test/build/lint/type failure: both frontends pass repo-native `make lint` and `make build`.
+- [done] developer experience issue affecting completion: frontend Makefiles work without a committed `.env` by falling back to `.env.example`.
 - [done] developer experience issue affecting completion: added `docker.env.example` and documented the Docker env-file workflow.
-- [done] unfinished-work search: targeted search found only a UI workaround TODO and BTC broadcast stub; BTC broadcast is out of current scope because the shipped currency set/README do not advertise BTC support.
-- [blocked] test/build/lint/type failure: backend `make build` / `make test` / `make lint` cannot run here because `go` is unavailable and Docker is unavailable.
+- [done] test/build/lint/type failure: both frontends pass repo-native `make lint` and `make build`.
+- [done] developer experience issue affecting completion: backend test DB setup now supports `OXYGEN_TEST_DB_DATA_SOURCE`, uses a fast connection timeout, reports clear Postgres connection errors, and exposes a focused config-resolution unit test.
+- [done] unfinished-work search: targeted search found only a UI workaround TODO and a BTC broadcast stub; BTC broadcast is out of current scope because shipped currencies do not include BTC.
+- [blocked] test/build/lint/type failure: full backend integration tests require reachable Postgres or a valid `OXYGEN_TEST_DB_DATA_SOURCE`.
+- [blocked] test/build/lint/type failure: backend lint requires `golangci-lint`, which is not installed in this workspace.
 - [blocked] broken flow: full end-to-end payment processing and blockchain provider flows require real provider credentials/services.
-- [out_of_scope] missing in-scope feature: roadmap items from README that are not already represented by code or broken paths.
+- [blocked] broken flow: Docker-based runtime validation is unavailable because Docker is not installed here.
+- [out_of_scope] missing in-scope feature: README roadmap items that are not already represented by code or broken product paths.
 
 ## Validations Attempted
 
-- `go test ./...` -> blocked: `go` command is not installed in this workspace.
-- `go build -o /tmp/oxygen-testbuild ./main.go` -> blocked: `go` command is not installed in this workspace.
-- `cd ui-dashboard && npm ci` -> passed.
-- `cd ui-payment && npm ci --ignore-scripts` -> passed.
-- `cd ui-dashboard && npx eslint src --ext .js,.jsx,.ts,.tsx` -> passed.
-- `cd ui-dashboard && npx tsc --noEmit --skipLibCheck -p ./tsconfig.json` -> passed.
-- `cd ui-payment && npx eslint src --ext .js,.jsx,.ts,.tsx` -> passed.
-- `cd ui-payment && npx tsc --noEmit --skipLibCheck -p ./tsconfig.json` -> passed.
-- `cd ui-payment && VITE_BACKEND_HOST='//' VITE_SUPPORT_EMAIL='help@site.com' VITE_ROOTPATH='/p/' VITE_SHOW_BRANDING='true' npx tsc && npx vite build --base=/p/` -> passed.
-- `cd ui-dashboard && VITE_BACKEND_HOST='//' VITE_ROOTPATH='/dashboard/' npx tsc && npx vite build --base=/dashboard/` -> initially failed with Node heap OOM when the env was not exported to `vite`; passed after applying the Makefile/workflow fix.
+- `make help` -> passed.
+- `make -n run` -> passed and resolves to `config/oxygen.example.yml` without triggering `go list`.
 - `cd ui-dashboard && make lint` -> passed.
 - `cd ui-payment && make lint` -> passed.
 - `cd ui-dashboard && make build` -> passed.
 - `cd ui-payment && make build` -> passed.
-- `make -n run` -> passed and resolves to `config/oxygen.example.yml` without triggering `go list`.
-- `make help` -> passed without requiring `go`.
+- `go version` -> passed (`go version go1.26.2 linux/amd64`).
+- `golangci-lint version` -> failed (`golangci-lint: command not found`).
+- `TMPDIR=/workspace/.tmp-go go test ./internal/test -run TestTestDatabaseConfig -count=1 -timeout=120s` -> passed.
+- `TMPDIR=/workspace/.tmp-go go test ./internal/test -run TestNewDB -count=1 -timeout=30s` -> failed quickly with a clear `127.0.0.1:5432` connection-refused error and guidance to use `OXYGEN_TEST_DB_DATA_SOURCE`.
+- `TMPDIR=/workspace/.tmp-go make build` -> passed.
+- `TMPDIR=/workspace/.tmp-go make test` -> started a full `go test -race` sweep; not useful to keep waiting once the focused Postgres-dependent failure mode had already been confirmed.
 
 ## Unresolved Blockers
 
-- Local backend validation still requires a Go toolchain.
-- Docker-based runtime validation still requires Docker.
-- Real end-to-end blockchain flows may be blocked by absent provider credentials.
+- No reachable Postgres service in this workspace.
+- Docker is unavailable.
+- `golangci-lint` is unavailable.
+- Real blockchain/provider credentials are unavailable.
 
 ## Scope Notes
 
 - Focus on repository-supported flows and operational completeness, not new roadmap features.
+- Remaining work is blocked by missing local services/tools rather than clearly justified in-repo feature or flow gaps.
