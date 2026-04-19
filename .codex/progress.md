@@ -53,9 +53,9 @@
 - [done] unfinished-work search: targeted search found only a UI workaround TODO and a BTC broadcast stub; BTC broadcast is out of current scope because shipped currencies do not include BTC.
 - [done] test/build/lint/type failure: re-ran repo-native backend/frontend build validation on the current baseline and all locally runnable build/lint checks passed.
 - [done] unfinished-work search: repeated route/manifests/code scanning confirmed no remaining in-scope local work beyond environment-blocked integration/lint/runtime validation.
-- [done] developer experience issue affecting completion: `make require-deps` now bootstraps `golangci-lint v1.53.3` with `GOTOOLCHAIN=go1.20.14`, and README documents that repo-native lint setup on newer hosts.
+- [done] developer experience issue affecting completion: `make require-deps` and `make lint` now export the repo-targeted Go `1.20.14` toolchain plus `GOSUMDB=sum.golang.org` for `golangci-lint v1.53.3`, and README documents that repo-native lint setup on newer hosts.
 - [blocked] test/build/lint/type failure: full backend integration tests require reachable Postgres or a valid `OXYGEN_TEST_DB_DATA_SOURCE`.
-- [blocked] test/build/lint/type failure: full backend lint still requires a local `golangci-lint v1.53.3` binary; bootstrap is now encoded in `make require-deps`, but I did not wait for a full source install in this workspace after verifying the generated command.
+- [blocked] test/build/lint/type failure: full backend lint still requires a local `golangci-lint v1.53.3` binary and a long analysis window; the toolchain/panic issue is fixed, but a bounded 10-minute local run did not finish in this workspace.
 - [blocked] broken flow: full end-to-end payment processing and blockchain provider flows require real provider credentials/services.
 - [blocked] broken flow: Docker-based runtime validation is unavailable because Docker is not installed here.
 - [out_of_scope] missing in-scope feature: README roadmap items that are not already represented by code or broken product paths.
@@ -100,7 +100,13 @@
 - `go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3` -> failed under host `go1.26.2` with `invalid array length -delta * delta` from `golang.org/x/tools/internal/tokeninternal`.
 - `GOTOOLCHAIN=go1.20.14 go version` -> passed (`go version go1.20.14 linux/amd64`).
 - `GOTOOLCHAIN=go1.20.14 TMPDIR=/workspace/oxygen/tmp/go GOBIN=/workspace/oxygen/tmp/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3` -> started successfully under the repo-targeted toolchain but remained long-running in this workspace, so the README was updated to document the required toolchain instead of treating lint bootstrap as a product bug.
-- `make -n require-deps` -> passed and now expands the repo-native lint bootstrap command as `GOTOOLCHAIN=go1.20.14 go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3`.
+- `timeout 300s bash -lc 'TMPDIR=/workspace/oxygen/tmp/go GOBIN=/workspace/oxygen/tmp/bin GOTOOLCHAIN=go1.20.14 go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3'` -> passed and produced `/workspace/oxygen/tmp/bin/golangci-lint`.
+- `/workspace/oxygen/tmp/bin/golangci-lint version` -> passed (`v1.53.3` built with `go1.20.14`).
+- `PATH=/workspace/oxygen/tmp/bin:$PATH make lint` -> failed with `unsupported version: 2`, which confirmed the lint runtime also needed the repo-targeted Go toolchain.
+- `PATH=/workspace/oxygen/tmp/bin:$PATH GOTOOLCHAIN=go1.20.14 make lint` -> failed quickly because this workspace had no `GOSUMDB` configured for toolchain verification.
+- `make -n lint` -> passed and now expands to `GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org golangci-lint run -v ./...`.
+- `make -n require-deps` -> passed and now expands the repo-native lint bootstrap command as `GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3`.
+- `timeout 600s bash -lc 'PATH=\"/workspace/oxygen/tmp/bin:$PATH\" GOTOOLCHAIN=go1.20.14 GOSUMDB=sum.golang.org make lint'` -> no longer panicked and reached real analysis, but timed out after 10 minutes with no lint findings emitted in this workspace.
 - Targeted unfinished-work verification:
   - `rg -n 't\\.Skip|Skip\\(|not implemented yet|panic\\(\".*TODO|TODO:' ...` -> only surfaced generated-client TODOs, an upstream Ant Design workaround, and the BTC broadcaster stub.
   - `rg -n 'BTC|bitcoin|btc' ...` plus inspection of `internal/service/blockchain/currencies.json` and `ui-dashboard/src/types/index.ts` -> BTC is present in lower-level wallet/OpenAPI surfaces but not in the active supported-currency set used by merchant/payment flows.
@@ -110,7 +116,7 @@
 
 - No reachable Postgres service in this workspace.
 - Docker is unavailable.
-- `golangci-lint v1.53.3` is still unavailable locally until `make require-deps` is allowed to finish bootstrapping it (or a prebuilt binary is provided).
+- Full backend lint remains time-consuming in this workspace even after the toolchain fix; the repo-native bootstrap path is now correct, but a 10-minute bounded run did not finish.
 - Real blockchain/provider credentials are unavailable.
 
 ## Scope Notes
@@ -121,5 +127,5 @@
   - Project type and stack verified from README, Makefiles, workflow files, manifests, and code layout.
   - Intended dev workflow verified from CI and documented commands.
   - Unfinished-work markers searched again after the baseline commit.
-  - Major locally runnable flows were rechecked on the current baseline, and the only new in-scope improvement justified by repo evidence was making backend lint bootstrap repo-native for newer Go hosts and documenting it.
+  - Major locally runnable flows were rechecked on the current baseline, and the only new in-scope improvement justified by repo evidence was making backend lint bootstrap/runtime repo-native for newer Go hosts and documenting it.
   - Remaining gaps are either environment-blocked (`Postgres`, `Docker`, `golangci-lint`, provider credentials) or outside the current supported product scope.

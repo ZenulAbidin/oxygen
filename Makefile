@@ -6,6 +6,7 @@ EMBED_FRONTEND ?= 1
 OXYGEN_CONFIG ?= $(if $(wildcard config/oxygen.yml),$(CURDIR)/config/oxygen.yml,$(CURDIR)/config/oxygen.example.yml)
 GO_TMPDIR ?= $(CURDIR)/tmp/go
 GOLANGCI_LINT_TOOLCHAIN ?= go1.20.14
+GOSUMDB ?= sum.golang.org
 
 # The -w turns off DWARF debugging information
 # The -s turns off generation of the Go symbol table
@@ -18,7 +19,7 @@ help: ## List of commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 lint: ## Lint code using golangci-lint
-	golangci-lint run -v ./...
+	GOTOOLCHAIN=$(GOLANGCI_LINT_TOOLCHAIN) GOSUMDB=$(GOSUMDB) golangci-lint run -v ./...
 
 codegen: ## Generate stuff for Oxygen :)
 	sqlc generate -f scripts/sqlc.yaml
@@ -79,7 +80,7 @@ require-deps: ## Require cli tools for development
 	go install github.com/kyleconroy/sqlc/cmd/sqlc@latest
 	go install github.com/cespare/reflex@latest
 	go install github.com/vektra/mockery/v2@v2.32.0
-	GOTOOLCHAIN=$(GOLANGCI_LINT_TOOLCHAIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3
+	GOTOOLCHAIN=$(GOLANGCI_LINT_TOOLCHAIN) GOSUMDB=$(GOSUMDB) go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.53.3
     # todo go-swagger as swagger
 
 docker-build: ## Build docker image for Oxygen
