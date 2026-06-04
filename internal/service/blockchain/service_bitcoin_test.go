@@ -46,3 +46,44 @@ func TestSelectBitcoinUTXOs(t *testing.T) {
 		assert.Zero(t, estimatedVBytes)
 	})
 }
+
+func TestSelectBitcoinSweepUTXOs(t *testing.T) {
+	t.Run("sweeps economical UTXOs minus fee", func(t *testing.T) {
+		selected, amountSats, feeSats, estimatedVBytes, err := selectBitcoinSweepUTXOs([]BitcoinUTXO{
+			{Hash: "large", AmountSats: 3_076},
+			{Hash: "dust-after-fee", AmountSats: 1_538},
+		}, 10)
+
+		require.NoError(t, err)
+		require.Len(t, selected, 2)
+		assert.Equal(t, int64(2_844), amountSats)
+		assert.Equal(t, int64(1_770), feeSats)
+		assert.Equal(t, int64(177), estimatedVBytes)
+	})
+
+	t.Run("skips UTXOs that cost more to spend than they add", func(t *testing.T) {
+		selected, amountSats, feeSats, estimatedVBytes, err := selectBitcoinSweepUTXOs([]BitcoinUTXO{
+			{Hash: "uneconomical", AmountSats: 500},
+			{Hash: "large", AmountSats: 3_076},
+		}, 10)
+
+		require.NoError(t, err)
+		require.Len(t, selected, 1)
+		assert.Equal(t, "large", selected[0].Hash)
+		assert.Equal(t, int64(1_986), amountSats)
+		assert.Equal(t, int64(1_090), feeSats)
+		assert.Equal(t, int64(109), estimatedVBytes)
+	})
+
+	t.Run("requires sweep output above dust", func(t *testing.T) {
+		selected, amountSats, feeSats, estimatedVBytes, err := selectBitcoinSweepUTXOs([]BitcoinUTXO{
+			{Hash: "small", AmountSats: 1_538},
+		}, 10)
+
+		assert.ErrorIs(t, err, ErrInsufficientFunds)
+		assert.Empty(t, selected)
+		assert.Zero(t, amountSats)
+		assert.Zero(t, feeSats)
+		assert.Zero(t, estimatedVBytes)
+	})
+}

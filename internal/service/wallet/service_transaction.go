@@ -34,7 +34,8 @@ func (s *Service) CreateSignedTransaction(
 	isTest bool,
 ) (string, error) {
 	if isUTXOBlockchain(kms.Blockchain(currency.Blockchain)) {
-		return s.createSignedBitcoinTransaction(ctx, sender, recipient, currency, amount, fee, isTest)
+		rawTX, _, err := s.CreateSignedUTXOTransaction(ctx, sender, recipient, currency, amount, fee, isTest)
+		return rawTX, err
 	}
 
 	if err := validateAccountBasedTransactionCurrency(currency); err != nil {
@@ -66,6 +67,29 @@ func (s *Service) CreateSignedTransaction(
 	return txRaw, errCreate
 }
 
+func (s *Service) CreateSignedUTXOTransaction(
+	ctx context.Context,
+	sender *Wallet,
+	recipient string,
+	currency money.CryptoCurrency,
+	amount money.Money,
+	fee blockchain.Fee,
+	isTest bool,
+) (string, blockchain.BitcoinTransactionPlan, error) {
+	return s.createSignedBitcoinTransaction(ctx, sender, recipient, currency, amount, fee, isTest, false)
+}
+
+func (s *Service) CreateSignedUTXOSweepTransaction(
+	ctx context.Context,
+	sender *Wallet,
+	recipient string,
+	currency money.CryptoCurrency,
+	fee blockchain.Fee,
+	isTest bool,
+) (string, blockchain.BitcoinTransactionPlan, error) {
+	return s.createSignedBitcoinTransaction(ctx, sender, recipient, currency, money.Money{}, fee, isTest, true)
+}
+
 func (s *Service) createSignedBitcoinTransaction(
 	ctx context.Context,
 	sender *Wallet,
@@ -74,33 +98,46 @@ func (s *Service) createSignedBitcoinTransaction(
 	amount money.Money,
 	fee blockchain.Fee,
 	isTest bool,
-) (string, error) {
+	sweep bool,
+) (string, blockchain.BitcoinTransactionPlan, error) {
 	if currency.Type != money.Coin || !isUTXOBlockchain(kms.Blockchain(currency.Blockchain)) {
-		return "", errors.Wrapf(ErrUnsupportedTransactionPath, "%s requires native UTXO flow", currency.Ticker)
+		return "", blockchain.BitcoinTransactionPlan{}, errors.Wrapf(ErrUnsupportedTransactionPath, "%s requires native UTXO flow", currency.Ticker)
 	}
 
 	if s.store == nil {
-		return "", errors.Wrap(ErrUnsupportedTransactionPath, "UTXO reservations require wallet storage")
+		return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(ErrUnsupportedTransactionPath, "UTXO reservations require wallet storage")
 	}
 
 	var lastConflict error
 	for attempt := 0; attempt < bitcoinUTXOReservationAttempts; attempt++ {
 		excluded, err := s.activeBitcoinUTXOReservationKeys(ctx, sender.ID, isTest)
 		if err != nil {
-			return "", errors.Wrap(err, "unable to list reserved BTC UTXOs")
+			return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(err, "unable to list reserved BTC UTXOs")
 		}
 
-		plan, err := s.blockchain.PrepareBitcoinTransactionExcluding(
-			ctx,
-			sender.Address,
-			recipient,
-			amount,
-			fee,
-			isTest,
-			excluded,
-		)
+		var plan blockchain.BitcoinTransactionPlan
+		if sweep {
+			plan, err = s.blockchain.PrepareBitcoinSweepTransactionExcluding(
+				ctx,
+				sender.Address,
+				recipient,
+				fee,
+				isTest,
+				excluded,
+			)
+		} else {
+			plan, err = s.blockchain.PrepareBitcoinTransactionExcluding(
+				ctx,
+				sender.Address,
+				recipient,
+				amount,
+				fee,
+				isTest,
+				excluded,
+			)
+		}
 		if err != nil {
-			return "", errors.Wrap(err, "unable to prepare BTC transaction")
+			return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(err, "unable to prepare BTC transaction")
 		}
 
 		reservationIDs, err := s.reserveBitcoinUTXOs(ctx, sender.ID, plan.Inputs, isTest)
@@ -109,31 +146,31 @@ func (s *Service) createSignedBitcoinTransaction(
 			continue
 		}
 		if err != nil {
-			return "", errors.Wrap(err, "unable to reserve BTC UTXOs")
+			return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(err, "unable to reserve BTC UTXOs")
 		}
 
 		rawTX, err := s.createSignedBitcoinTransactionFromPlan(ctx, sender, plan, isTest)
 		if err != nil {
 			if releaseErr := s.releaseBitcoinUTXOReservationIDs(ctx, reservationIDs); releaseErr != nil {
-				return "", errors.Wrap(releaseErr, "unable to release BTC UTXO reservations after KMS failure")
+				return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(releaseErr, "unable to release BTC UTXO reservations after KMS failure")
 			}
 
-			return "", err
+			return "", blockchain.BitcoinTransactionPlan{}, err
 		}
 
 		rawTXID := bitcoinRawTXReservationID(rawTX)
 		if err := s.attachBitcoinUTXOReservationsRawTX(ctx, reservationIDs, rawTXID); err != nil {
 			if releaseErr := s.releaseBitcoinUTXOReservationIDs(ctx, reservationIDs); releaseErr != nil {
-				return "", errors.Wrap(releaseErr, "unable to release BTC UTXO reservations after attach failure")
+				return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(releaseErr, "unable to release BTC UTXO reservations after attach failure")
 			}
 
-			return "", errors.Wrap(err, "unable to attach raw BTC transaction to UTXO reservations")
+			return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(err, "unable to attach raw BTC transaction to UTXO reservations")
 		}
 
-		return rawTX, nil
+		return rawTX, plan, nil
 	}
 
-	return "", errors.Wrap(ErrUTXOReservationConflict, lastConflict.Error())
+	return "", blockchain.BitcoinTransactionPlan{}, errors.Wrap(ErrUTXOReservationConflict, lastConflict.Error())
 }
 
 func (s *Service) createSignedBitcoinTransactionFromPlan(

@@ -121,6 +121,88 @@ func (s *Service) PrepareBitcoinTransaction(
 	return s.PrepareBitcoinTransactionExcluding(ctx, senderAddress, recipient, amount, fee, isTest, nil)
 }
 
+func (s *Service) PrepareBitcoinSweepTransaction(
+	ctx context.Context,
+	senderAddress string,
+	recipient string,
+	fee Fee,
+	isTest bool,
+) (BitcoinTransactionPlan, error) {
+	return s.PrepareBitcoinSweepTransactionExcluding(ctx, senderAddress, recipient, fee, isTest, nil)
+}
+
+func (s *Service) PrepareBitcoinSweepTransactionExcluding(
+	ctx context.Context,
+	senderAddress string,
+	recipient string,
+	fee Fee,
+	isTest bool,
+	excluded []BitcoinUTXOKey,
+) (BitcoinTransactionPlan, error) {
+	blockchain := kmswallet.Blockchain(fee.Currency.Blockchain)
+	if !isUTXOBlockchain(blockchain) || fee.Currency.Type != money.Coin {
+		return BitcoinTransactionPlan{}, errors.Wrap(ErrUnsupportedRuntime, "UTXO runtime supports native BTC/LTC coins only")
+	}
+
+	if err := kmswallet.ValidateAddressForNetwork(blockchain, senderAddress, isTest); err != nil {
+		return BitcoinTransactionPlan{}, errors.Wrapf(err, "invalid %s sender address", blockchain)
+	}
+
+	if err := kmswallet.ValidateAddressForNetwork(blockchain, recipient, isTest); err != nil {
+		return BitcoinTransactionPlan{}, errors.Wrapf(err, "invalid %s recipient address", blockchain)
+	}
+
+	feeBTC, err := fee.ToBitcoinFee()
+	if err != nil {
+		return BitcoinTransactionPlan{}, err
+	}
+
+	feeRate, err := strconv.ParseInt(feeBTC.FeeSatPerVByte, 10, 64)
+	if err != nil || feeRate <= 0 {
+		return BitcoinTransactionPlan{}, errors.Wrap(ErrValidation, "invalid UTXO fee rate")
+	}
+
+	utxos, err := s.utxoSpendableUTXOs(ctx, blockchain, senderAddress, isTest)
+	if err != nil {
+		return BitcoinTransactionPlan{}, err
+	}
+
+	excludedMap := make(map[BitcoinUTXOKey]struct{}, len(excluded))
+	for _, key := range excluded {
+		excludedMap[key] = struct{}{}
+	}
+
+	if len(excludedMap) > 0 {
+		filtered := make([]BitcoinUTXO, 0, len(utxos))
+		for _, utxo := range utxos {
+			if _, ok := excludedMap[BitcoinUTXOKey{Hash: utxo.Hash, Index: utxo.Index}]; ok {
+				continue
+			}
+			filtered = append(filtered, utxo)
+		}
+		utxos = filtered
+	}
+
+	selected, amountSats, feeSats, estimatedVBytes, err := selectBitcoinSweepUTXOs(utxos, feeRate)
+	if err != nil {
+		return BitcoinTransactionPlan{}, err
+	}
+
+	return BitcoinTransactionPlan{
+		Inputs: selected,
+		Outputs: []BitcoinOutput{{
+			Address:    recipient,
+			AmountSats: amountSats,
+		}},
+		ChangeAddress:     "",
+		FeeSatPerVByte:    feeRate,
+		EstimatedVBytes:   estimatedVBytes,
+		FeeSats:           feeSats,
+		RequiredAmountSat: amountSats,
+		RBF:               true,
+	}, nil
+}
+
 func (s *Service) PrepareBitcoinTransactionExcluding(
 	ctx context.Context,
 	senderAddress string,
@@ -404,6 +486,44 @@ func selectBitcoinUTXOs(utxos []BitcoinUTXO, amountSats, feeRate int64) (
 	}
 
 	return nil, 0, 0, 0, errors.Wrap(ErrInsufficientFunds, "not enough BTC UTXOs to cover amount and network fee")
+}
+
+func selectBitcoinSweepUTXOs(utxos []BitcoinUTXO, feeRate int64) (
+	[]BitcoinUTXO,
+	int64,
+	int64,
+	int64,
+	error,
+) {
+	if feeRate <= 0 {
+		return nil, 0, 0, 0, errors.Wrap(ErrValidation, "invalid BTC fee rate")
+	}
+
+	selected := make([]BitcoinUTXO, 0, len(utxos))
+	var inputTotal int64
+	perInputFee := int64(68) * feeRate
+
+	for _, utxo := range utxos {
+		if utxo.AmountSats <= perInputFee {
+			continue
+		}
+
+		selected = append(selected, utxo)
+		inputTotal += utxo.AmountSats
+	}
+
+	if len(selected) == 0 {
+		return nil, 0, 0, 0, errors.Wrap(ErrInsufficientFunds, "not enough BTC UTXOs to sweep")
+	}
+
+	estimatedVBytes := estimateBitcoinP2WPKHVSize(len(selected), 1)
+	feeSats := estimatedVBytes * feeRate
+	amountSats := inputTotal - feeSats
+	if amountSats < bitcoinDustSats {
+		return nil, 0, 0, 0, errors.Wrap(ErrInsufficientFunds, "sweep amount is below BTC dust threshold after network fee")
+	}
+
+	return selected, amountSats, feeSats, estimatedVBytes, nil
 }
 
 func estimateBitcoinP2WPKHVSize(inputs int, outputs int) int64 {

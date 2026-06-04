@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/oxygenpay/oxygen/internal/bus"
 	"github.com/oxygenpay/oxygen/internal/db/repository"
+	kmswallet "github.com/oxygenpay/oxygen/internal/kms/wallet"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/service/wallet"
@@ -198,6 +199,37 @@ func (s *Service) getWithdrawalFee(
 
 	isTest := balance.NetworkID != currency.NetworkID
 
+	if isUTXOBlockchain(currency.Blockchain) {
+		networkFee, err := s.blockchain.CalculateFee(ctx, baseCurrency, currency, isTest)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to get fee")
+		}
+
+		utxoFee, err := networkFee.ToBitcoinFee()
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to parse UTXO fee")
+		}
+
+		cryptoFee, err := currency.MakeAmount(utxoFee.TotalCostSats)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unable to make %s withdrawal fee", currency.Ticker)
+		}
+
+		conv, err := s.blockchain.CryptoToFiat(ctx, cryptoFee, money.USD)
+		if err != nil {
+			return nil, errors.Wrapf(err, "unable to convert %s fee to USD", currency.Ticker)
+		}
+
+		return &WithdrawalFee{
+			CalculatedAt: time.Now(),
+			Blockchain:   currency.Blockchain,
+			Currency:     currency.Ticker,
+			IsTest:       isTest,
+			USDFee:       conv.To,
+			CryptoFee:    cryptoFee,
+		}, nil
+	}
+
 	usdFee, err := s.blockchain.CalculateWithdrawalFeeUSD(ctx, baseCurrency, currency, isTest)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get fee")
@@ -216,6 +248,15 @@ func (s *Service) getWithdrawalFee(
 		USDFee:       usdFee,
 		CryptoFee:    conv.To,
 	}, nil
+}
+
+func isUTXOBlockchain(blockchain money.Blockchain) bool {
+	switch kmswallet.Blockchain(blockchain) {
+	case kmswallet.BTC, kmswallet.LTC:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateWithdrawalRuntimeCurrency(currency money.CryptoCurrency) error {

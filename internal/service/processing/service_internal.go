@@ -218,6 +218,7 @@ type internalTransferOutput struct {
 	Transaction        *transaction.Transaction
 	TransactionRaw     string
 	TransactionHashID  string
+	Amount             money.Money
 	BalanceDecremented bool
 	IsTest             bool
 }
@@ -267,24 +268,42 @@ func (s *Service) createInternalTransfer(
 		return out, errors.Wrapf(err, "unable to calculate fee")
 	}
 
+	transferAmount := params.Amount
+
 	// 1. Create signed transaction via KMS
-	txRaw, err = s.wallets.CreateSignedTransaction(
-		ctx,
-		sender,
-		params.RecipientWallet.Address,
-		currency,
-		params.Amount,
-		txNetworkFee,
-		isTest,
-	)
+	if isUTXOBlockchain(currency.Blockchain) {
+		var plan blockchain.BitcoinTransactionPlan
+		txRaw, plan, err = s.wallets.CreateSignedUTXOSweepTransaction(
+			ctx,
+			sender,
+			params.RecipientWallet.Address,
+			currency,
+			txNetworkFee,
+			isTest,
+		)
+		if err == nil {
+			transferAmount, err = currency.MakeAmount(strconv.FormatInt(plan.RequiredAmountSat, 10))
+		}
+	} else {
+		txRaw, err = s.wallets.CreateSignedTransaction(
+			ctx,
+			sender,
+			params.RecipientWallet.Address,
+			currency,
+			transferAmount,
+			txNetworkFee,
+			isTest,
+		)
+	}
 	if err != nil {
 		return out, errors.Wrapf(err, "unable to create raw signed transaction")
 	}
 
 	out.TransactionRaw = txRaw
+	out.Amount = transferAmount
 
 	// 2. Convert amount to USD
-	conv, err := s.blockchain.CryptoToFiat(ctx, params.Amount, money.USD)
+	conv, err := s.blockchain.CryptoToFiat(ctx, transferAmount, money.USD)
 	if err != nil {
 		return out, errors.Wrapf(err, "unable to convert %s to USD", currency.Ticker)
 	}
@@ -295,7 +314,7 @@ func (s *Service) createInternalTransfer(
 		RecipientWallet: params.RecipientWallet,
 		SenderWallet:    params.SenderWallet,
 		Currency:        currency,
-		Amount:          params.Amount,
+		Amount:          transferAmount,
 		USDAmount:       conv.To,
 		IsTest:          isTest,
 	})
@@ -308,7 +327,7 @@ func (s *Service) createInternalTransfer(
 	// 4. Decrement balance sender's balance
 	_, err = s.wallets.UpdateBalanceByID(ctx, params.SenderBalance.ID, wallet.UpdateBalanceByIDQuery{
 		Operation: wallet.OperationDecrement,
-		Amount:    params.Amount,
+		Amount:    transferAmount,
 		Comment:   "locking balance for internal transaction",
 		MetaData: wallet.MetaData{
 			wallet.MetaTransactionID:     strconv.Itoa(int(tx.ID)),
@@ -374,9 +393,14 @@ func (s *Service) rollbackInternalTransfer(
 	}
 
 	if out.BalanceDecremented {
+		amount := out.Amount
+		if amount.IsZero() {
+			amount = in.Amount
+		}
+
 		_, err := s.wallets.UpdateBalanceByID(ctx, in.SenderBalance.ID, wallet.UpdateBalanceByIDQuery{
 			Operation: wallet.OperationIncrement,
-			Amount:    in.Amount,
+			Amount:    amount,
 			Comment:   "Unlocking balance due to internal transfer rollback",
 			MetaData: wallet.MetaData{
 				wallet.MetaTransactionID: strconv.Itoa(int(out.Transaction.ID)),

@@ -159,6 +159,20 @@ func (s *bitcoinBlockchainStub) PrepareBitcoinTransactionExcluding(
 	return s.plan, nil
 }
 
+func (s *bitcoinBlockchainStub) PrepareBitcoinSweepTransactionExcluding(
+	_ context.Context,
+	senderAddress string,
+	recipient string,
+	_ blockchain.Fee,
+	_ bool,
+	_ []blockchain.BitcoinUTXOKey,
+) (blockchain.BitcoinTransactionPlan, error) {
+	s.senderAddress = senderAddress
+	s.recipient = recipient
+
+	return s.plan, nil
+}
+
 func (s *bitcoinBlockchainStub) GetExchangeRate(context.Context, string, string) (blockchain.ExchangeRate, error) {
 	panic("unexpected call")
 }

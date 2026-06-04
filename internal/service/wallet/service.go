@@ -52,6 +52,14 @@ type BlockchainService interface {
 		isTest bool,
 		excluded []blockchain.BitcoinUTXOKey,
 	) (blockchain.BitcoinTransactionPlan, error)
+	PrepareBitcoinSweepTransactionExcluding(
+		ctx context.Context,
+		senderAddress string,
+		recipient string,
+		fee blockchain.Fee,
+		isTest bool,
+		excluded []blockchain.BitcoinUTXOKey,
+	) (blockchain.BitcoinTransactionPlan, error)
 }
 
 type Service struct {

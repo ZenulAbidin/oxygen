@@ -3,9 +3,12 @@ package processing
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
+	kmswallet "github.com/oxygenpay/oxygen/internal/kms/wallet"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/service/merchant"
@@ -78,6 +81,7 @@ func (s *Service) BatchCreateWithdrawals(ctx context.Context, withdrawalIDs []in
 				result.registerErr(errors.New("unable to get withdrawal wallet"))
 				return nil
 			}
+			outboundWithdrawalWallet := withdrawalWallet
 
 			merchantBalance, err := s.wallets.GetBalanceByID(
 				ctx,
@@ -100,6 +104,38 @@ func (s *Service) BatchCreateWithdrawals(ctx context.Context, withdrawalIDs []in
 				return nil
 			}
 
+			if isUTXOBlockchain(currency.Blockchain) {
+				selectedWallet, selectedBalance, consolidation, err := s.resolveUTXOWithdrawalSource(
+					ctx,
+					currency,
+					withdrawal.IsTest,
+					withdrawal.Price,
+					withdrawalWallet,
+					systemBalance,
+				)
+				if err != nil {
+					result.registerErr(errors.Wrap(err, "unable to resolve UTXO withdrawal source"))
+					return nil
+				}
+
+				for _, tx := range consolidation.CreatedTransactions {
+					result.addTransaction(tx)
+				}
+				for _, txID := range consolidation.RollbackedTransactionIDs {
+					result.addRollbackID(txID)
+				}
+				for _, err := range consolidation.UnhandledErrors {
+					result.registerErr(err)
+				}
+
+				if selectedWallet == nil || selectedBalance == nil {
+					return nil
+				}
+
+				withdrawalWallet = selectedWallet
+				systemBalance = selectedBalance
+			}
+
 			params := withdrawalInput{
 				Withdrawal:      withdrawal,
 				Wallet:          withdrawalWallet,
@@ -111,6 +147,29 @@ func (s *Service) BatchCreateWithdrawals(ctx context.Context, withdrawalIDs []in
 			output, errWithdrawal := s.createWithdrawal(ctx, params)
 
 			if errWithdrawal != nil {
+				if output.Transaction == nil && isUTXOBlockchain(currency.Blockchain) &&
+					errors.Is(errWithdrawal, blockchain.ErrInsufficientFunds) {
+					candidates, errCandidates := s.listInboundUTXOSources(ctx, currency, withdrawal.IsTest)
+					if errCandidates != nil {
+						result.registerErr(errors.Wrap(errCandidates, "unable to list inbound UTXO sources"))
+						return nil
+					}
+
+					consolidation := s.createUTXOConsolidations(ctx, currency, withdrawal.IsTest, outboundWithdrawalWallet, candidates)
+					for _, tx := range consolidation.CreatedTransactions {
+						result.addTransaction(tx)
+					}
+					for _, txID := range consolidation.RollbackedTransactionIDs {
+						result.addRollbackID(txID)
+					}
+					for _, err := range consolidation.UnhandledErrors {
+						result.registerErr(err)
+					}
+					if len(consolidation.CreatedTransactions) > 0 {
+						return nil
+					}
+				}
+
 				s.logger.Error().Err(errWithdrawal).
 					Int64("payment_id", withdrawal.ID).
 					Int64("merchant_id", withdrawal.MerchantID).
@@ -143,6 +202,144 @@ func (s *Service) BatchCreateWithdrawals(ctx context.Context, withdrawalIDs []in
 	}
 
 	return result, group.Wait()
+}
+
+type utxoWithdrawalSource struct {
+	Wallet  *wallet.Wallet
+	Balance *wallet.Balance
+}
+
+func (s *Service) resolveUTXOWithdrawalSource(
+	ctx context.Context,
+	currency money.CryptoCurrency,
+	isTest bool,
+	amount money.Money,
+	outboundWallet *wallet.Wallet,
+	outboundBalance *wallet.Balance,
+) (*wallet.Wallet, *wallet.Balance, *TransferResult, error) {
+	emptyResult := &TransferResult{}
+	if outboundBalance.Covers(amount) == nil {
+		return outboundWallet, outboundBalance, emptyResult, nil
+	}
+
+	candidates, err := s.listInboundUTXOSources(ctx, currency, isTest)
+	if err != nil {
+		return nil, nil, emptyResult, err
+	}
+
+	for _, candidate := range candidates {
+		if candidate.Balance.Covers(amount) == nil {
+			return candidate.Wallet, candidate.Balance, emptyResult, nil
+		}
+	}
+
+	consolidation := s.createUTXOConsolidations(ctx, currency, isTest, outboundWallet, candidates)
+	if len(consolidation.CreatedTransactions) > 0 {
+		return nil, nil, consolidation, nil
+	}
+
+	return nil, nil, consolidation, errors.Wrapf(
+		blockchain.ErrInsufficientFunds,
+		"no single %s wallet can fund withdrawal and no economical inbound UTXO consolidation could be started",
+		currency.Ticker,
+	)
+}
+
+func (s *Service) listInboundUTXOSources(
+	ctx context.Context,
+	currency money.CryptoCurrency,
+	isTest bool,
+) ([]utxoWithdrawalSource, error) {
+	var (
+		start      int64
+		candidates []utxoWithdrawalSource
+		networkID  = currency.ChooseNetwork(isTest)
+	)
+
+	for {
+		wallets, nextID, err := s.wallets.List(ctx, wallet.Pagination{
+			Start:              start,
+			Limit:              300,
+			FilterByType:       wallet.TypeInbound,
+			FilterByBlockchain: kmswallet.Blockchain(currency.Blockchain),
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to list inbound wallets")
+		}
+
+		for _, sourceWallet := range wallets {
+			balances, err := s.wallets.ListBalances(ctx, wallet.EntityTypeWallet, sourceWallet.ID, false)
+			if err != nil {
+				return nil, errors.Wrap(err, "unable to list inbound wallet balances")
+			}
+
+			for _, balance := range balances {
+				if balance.Currency != currency.Ticker || balance.NetworkID != networkID || balance.Amount.IsZero() {
+					continue
+				}
+
+				candidates = append(candidates, utxoWithdrawalSource{
+					Wallet:  sourceWallet,
+					Balance: balance,
+				})
+			}
+		}
+
+		if nextID == nil {
+			break
+		}
+		start = *nextID
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].Balance.Amount.GreaterThan(candidates[j].Balance.Amount)
+	})
+
+	return candidates, nil
+}
+
+func (s *Service) createUTXOConsolidations(
+	ctx context.Context,
+	currency money.CryptoCurrency,
+	isTest bool,
+	outboundWallet *wallet.Wallet,
+	candidates []utxoWithdrawalSource,
+) *TransferResult {
+	result := &TransferResult{}
+
+	for _, candidate := range candidates {
+		params := internalTransferInput{
+			SenderWallet:    candidate.Wallet,
+			SenderBalance:   candidate.Balance,
+			RecipientWallet: outboundWallet,
+			Amount:          candidate.Balance.Amount,
+		}
+
+		output, errTransfer := s.createInternalTransfer(ctx, candidate.Wallet, params)
+		if errTransfer != nil {
+			s.logger.Warn().Err(errTransfer).
+				Str("currency", currency.Ticker).
+				Bool("is_test", isTest).
+				Int64("sender_wallet_id", candidate.Wallet.ID).
+				Str("sender_address", candidate.Wallet.Address).
+				Msg("unable to create UTXO consolidation")
+
+			errRollback := s.rollbackInternalTransfer(ctx, params, output, errTransfer)
+			if errRollback != nil {
+				result.registerErr(errRollback)
+			} else {
+				result.registerErr(errTransfer)
+			}
+			if output.Transaction != nil {
+				result.addRollbackID(output.Transaction.ID)
+			}
+			continue
+		}
+
+		result.addTransaction(output.Transaction)
+	}
+
+	return result
 }
 
 func (s *Service) BatchCheckWithdrawals(ctx context.Context, transactionIDs []int64) error {
@@ -242,19 +439,17 @@ func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) 
 	isTest := currency.NetworkID != params.MerchantBalance.NetworkID
 	out.IsTest = isTest
 
-	// 1. Calculate withdrawal fee in USD
-	withdrawalFeeUSD, err := s.blockchain.CalculateWithdrawalFeeUSD(ctx, baseCurrency, currency, isTest)
+	txNetworkFee, err := s.blockchain.CalculateFee(ctx, baseCurrency, currency, isTest)
 	if err != nil {
-		return out, errors.Wrapf(err, "unable to get currency withdrawal fee in USD")
+		return out, errors.Wrap(err, "unable to calculate network fee")
 	}
 
-	withdrawalFeeCrypto, err := s.blockchain.FiatToCrypto(ctx, withdrawalFeeUSD, currency)
+	serviceFee, err := s.withdrawalServiceFeeCrypto(ctx, baseCurrency, currency, txNetworkFee, isTest)
 	if err != nil {
 		return out, errors.Wrapf(err, "unable to get currency withdrawal fee in crypto")
 	}
 
 	amount := params.Withdrawal.Price
-	serviceFee := withdrawalFeeCrypto.To
 	out.ServiceFee = serviceFee
 
 	// 2. Ensure that merchant balance & outbound wallet have enough funds
@@ -268,23 +463,41 @@ func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) 
 		return out, errors.Wrap(errBalance, "system balance has not enough funds for withdrawal")
 	}
 
-	// 3. Create signed transaction via KMS
-	txNetworkFee, err := s.blockchain.CalculateFee(ctx, baseCurrency, currency, isTest)
-	if err != nil {
-		return out, errors.Wrap(err, "unable to calculate network fee")
+	if isUTXOBlockchain(currency.Blockchain) {
+		var plan blockchain.BitcoinTransactionPlan
+		txRaw, plan, err = s.wallets.CreateSignedUTXOTransaction(
+			ctx,
+			params.Wallet,
+			params.MerchantAddress.Address,
+			currency,
+			amount,
+			txNetworkFee,
+			isTest,
+		)
+		if err == nil {
+			serviceFee, err = currency.MakeAmount(strconv.FormatInt(plan.FeeSats, 10))
+			if err == nil {
+				out.ServiceFee = serviceFee
+			}
+		}
+	} else {
+		txRaw, err = s.wallets.CreateSignedTransaction(
+			ctx,
+			params.Wallet,
+			params.MerchantAddress.Address,
+			currency,
+			amount,
+			txNetworkFee,
+			isTest,
+		)
 	}
-
-	txRaw, err = s.wallets.CreateSignedTransaction(
-		ctx,
-		params.Wallet,
-		params.MerchantAddress.Address,
-		currency,
-		amount,
-		txNetworkFee,
-		isTest,
-	)
 	if err != nil {
 		return out, errors.Wrapf(err, "unable to create raw signed transaction")
+	}
+
+	if errBalance := params.MerchantBalance.Covers(amount, serviceFee); errBalance != nil {
+		out.MarkPaymentAsFailed = true
+		return out, errors.Wrap(errBalance, "merchant balance has not enough funds for withdrawal")
 	}
 
 	out.TransactionRaw = txRaw
@@ -383,6 +596,35 @@ func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) 
 	// because otherwise it's impossible to determine exact tx fees.
 
 	return out, nil
+}
+
+func (s *Service) withdrawalServiceFeeCrypto(
+	ctx context.Context,
+	baseCurrency money.CryptoCurrency,
+	currency money.CryptoCurrency,
+	networkFee blockchain.Fee,
+	isTest bool,
+) (money.Money, error) {
+	if isUTXOBlockchain(currency.Blockchain) {
+		utxoFee, err := networkFee.ToBitcoinFee()
+		if err != nil {
+			return money.Money{}, err
+		}
+
+		return currency.MakeAmount(utxoFee.TotalCostSats)
+	}
+
+	withdrawalFeeUSD, err := s.blockchain.CalculateWithdrawalFeeUSD(ctx, baseCurrency, currency, isTest)
+	if err != nil {
+		return money.Money{}, errors.Wrapf(err, "unable to get currency withdrawal fee in USD")
+	}
+
+	withdrawalFeeCrypto, err := s.blockchain.FiatToCrypto(ctx, withdrawalFeeUSD, currency)
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	return withdrawalFeeCrypto.To, nil
 }
 
 func (s *Service) rollbackWithdrawal(
