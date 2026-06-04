@@ -13,13 +13,14 @@ type Blockchain string
 
 const (
 	BTC   Blockchain = "BTC"
+	LTC   Blockchain = "LTC"
 	ETH   Blockchain = "ETH"
 	TRON  Blockchain = "TRON"
 	MATIC Blockchain = "MATIC"
 	BSC   Blockchain = "BSC"
 )
 
-var blockchains = []Blockchain{BTC, ETH, TRON, MATIC, BSC}
+var blockchains = []Blockchain{BTC, LTC, ETH, TRON, MATIC, BSC}
 
 func ListBlockchains() []Blockchain {
 	result := make([]Blockchain, len(blockchains))
@@ -65,10 +66,22 @@ func (b Blockchain) IsSpecified() bool {
 }
 
 func ValidateAddress(blockchain Blockchain, address string) error {
+	return validateAddress(blockchain, address, false, false)
+}
+
+func ValidateAddressForNetwork(blockchain Blockchain, address string, isTest bool) error {
+	return validateAddress(blockchain, address, true, isTest)
+}
+
+func validateAddress(blockchain Blockchain, address string, hasNetwork bool, isTest bool) error {
 	var isValid bool
 	switch blockchain {
-	case BTC:
-		isValid = validateBitcoinAddress(address)
+	case BTC, LTC:
+		if hasNetwork {
+			isValid = validateUTXOAddressForNetwork(blockchain, address, isTest)
+		} else {
+			isValid = validateUTXOAddress(blockchain, address)
+		}
 	case ETH, MATIC, BSC:
 		isValid = validateEthereumAddress(address)
 	case TRON:

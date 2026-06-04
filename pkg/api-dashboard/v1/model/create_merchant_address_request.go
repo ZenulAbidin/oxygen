@@ -29,7 +29,7 @@ type CreateMerchantAddressRequest struct {
 	// blockchain
 	// Example: ETH
 	// Required: true
-	// Enum: [BTC ETH TRON MATIC BSC]
+	// Enum: [BTC LTC ETH TRON MATIC BSC]
 	Blockchain string `json:"blockchain"`
 
 	// Name
@@ -79,7 +79,7 @@ var createMerchantAddressRequestTypeBlockchainPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["BTC","ETH","TRON","MATIC","BSC"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["BTC","LTC","ETH","TRON","MATIC","BSC"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -91,6 +91,9 @@ const (
 
 	// CreateMerchantAddressRequestBlockchainBTC captures enum value "BTC"
 	CreateMerchantAddressRequestBlockchainBTC string = "BTC"
+
+	// CreateMerchantAddressRequestBlockchainLTC captures enum value "LTC"
+	CreateMerchantAddressRequestBlockchainLTC string = "LTC"
 
 	// CreateMerchantAddressRequestBlockchainETH captures enum value "ETH"
 	CreateMerchantAddressRequestBlockchainETH string = "ETH"

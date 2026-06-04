@@ -5,8 +5,11 @@ import svgr from "vite-plugin-svgr";
 import dynamicImport from "vite-plugin-dynamic-import";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 
+const rootPath = process.env.VITE_ROOTPATH ?? "/p/";
+
 // https://vitejs.dev/config/
 export default defineConfig({
+    base: rootPath,
     resolve: {
         alias: {
             src: path.resolve(__dirname, "/src")

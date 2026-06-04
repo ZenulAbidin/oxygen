@@ -23,6 +23,7 @@ func TestHandlerRoutes(t *testing.T) {
 	const (
 		walletRoute              = "/api/kms/v1/wallet/:walletId"
 		ethereumTransactionRoute = "/api/kms/v1/wallet/:walletId/transaction/eth"
+		bitcoinTransactionRoute  = "/api/kms/v1/wallet/:walletId/transaction/btc"
 		polygonTransactionRoute  = "/api/kms/v1/wallet/:walletId/transaction/matic"
 		bscTransactionRoute      = "/api/kms/v1/wallet/:walletId/transaction/bsc"
 		tronTransactionRoute     = "/api/kms/v1/wallet/:walletId/transaction/tron"
@@ -154,6 +155,66 @@ func TestHandlerRoutes(t *testing.T) {
 					Do()
 
 				// ASSERT
+				testCase.assert(t, res)
+			})
+		}
+	})
+
+	t.Run("CreateBitcoinTransaction", func(t *testing.T) {
+		for testCaseIndex, testCase := range []struct {
+			wallet *wallet.Wallet
+			req    model.CreateBitcoinTransactionRequest
+			assert func(t *testing.T, res *test.Response)
+		}{
+			{
+				wallet: createWallet(wallet.BTC),
+				req: model.CreateBitcoinTransactionRequest{
+					Inputs: []*model.BitcoinUTXO{{
+						Hash:       "1c99a4e6f1dcf8ef2e3db3d2db5ca7dd4f78edb5a8f42fb6f7f4d89af2b2b923",
+						Index:      0,
+						AmountSats: 10_000,
+					}},
+					Outputs: []*model.BitcoinOutput{{
+						Address:    createWallet(wallet.BTC).Address,
+						AmountSats: 8_000,
+					}},
+					RBF: true,
+				},
+				assert: func(t *testing.T, res *test.Response) {
+					var body model.BitcoinTransaction
+
+					assert.Equal(t, http.StatusCreated, res.StatusCode(), res.String())
+					assert.NoError(t, res.JSON(&body))
+					assert.NotEmpty(t, body.RawTransaction)
+				},
+			},
+			{
+				// blockchain mismatch
+				wallet: createWallet(wallet.ETH),
+				req: model.CreateBitcoinTransactionRequest{
+					Inputs: []*model.BitcoinUTXO{{
+						Hash:       "1c99a4e6f1dcf8ef2e3db3d2db5ca7dd4f78edb5a8f42fb6f7f4d89af2b2b923",
+						Index:      0,
+						AmountSats: 10_000,
+					}},
+					Outputs: []*model.BitcoinOutput{{
+						Address:    createWallet(wallet.BTC).Address,
+						AmountSats: 8_000,
+					}},
+				},
+				assert: func(t *testing.T, res *test.Response) {
+					assert.Equal(t, http.StatusBadRequest, res.StatusCode(), res.String())
+				},
+			},
+		} {
+			t.Run(strconv.Itoa(testCaseIndex+1), func(t *testing.T) {
+				res := tc.Client.
+					POST().
+					Path(bitcoinTransactionRoute).
+					Param(paramWalletID, testCase.wallet.UUID.String()).
+					JSON(&testCase.req).
+					Do()
+
 				testCase.assert(t, res)
 			})
 		}

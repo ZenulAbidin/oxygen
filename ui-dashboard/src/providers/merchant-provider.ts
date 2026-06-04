@@ -11,7 +11,8 @@ import {
     SupportMessage,
     CustomerPagination,
     ListCustomersParams,
-    Customer
+    Customer,
+    PaymentSettings
 } from "src/types";
 import withApiPath from "src/utils/with-api-path";
 
@@ -43,6 +44,11 @@ const merchantProvider = {
 
     async updateMerchantWebhookSettings(merchantId: string, params: WebhookSettings): Promise<void> {
         await apiRequest.put(withApiPath(`/merchant/${merchantId}/webhook`), params);
+        return;
+    },
+
+    async updateMerchantPaymentSettings(merchantId: string, params: PaymentSettings): Promise<void> {
+        await apiRequest.put(withApiPath(`/merchant/${merchantId}/payment-settings`), params);
         return;
     },
 

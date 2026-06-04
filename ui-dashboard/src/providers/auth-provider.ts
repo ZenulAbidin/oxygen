@@ -1,4 +1,4 @@
-import apiRequest from "src/utils/api-request";
+import apiRequest, {setDashboardCSRFToken} from "src/utils/api-request";
 import {User, UserCreateForm, AuthProvider} from "src/types";
 import withApiPath from "src/utils/with-api-path";
 
@@ -7,7 +7,7 @@ const authProvider = {
         const response = await apiRequest.get(withApiPath(`/auth/csrf-cookie`));
         const csrf = response.headers["x-csrf-token"];
 
-        apiRequest.defaults.headers.common["x-csrf-token"] = csrf;
+        setDashboardCSRFToken(csrf);
         return csrf ?? "";
     },
 

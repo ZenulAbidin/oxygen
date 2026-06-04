@@ -252,7 +252,7 @@ func paymentInfoToResponse(i *processing.PaymentInfo) *model.PaymentInfo {
 		successAction = (*string)(i.SuccessAction)
 	}
 
-	return &model.PaymentInfo{
+	response := &model.PaymentInfo{
 		Status:           i.Status.String(),
 		RecipientAddress: i.RecipientAddress,
 		PaymentLink:      i.PaymentLink,
@@ -266,5 +266,25 @@ func paymentInfoToResponse(i *processing.PaymentInfo) *model.PaymentInfo {
 		SuccessAction:  successAction,
 		SuccessURL:     i.SuccessURL,
 		SuccessMessage: i.SuccessMessage,
+	}
+
+	if i.ObservedTransaction != nil {
+		response.ObservedTransaction = observedTransactionToResponse(i.ObservedTransaction)
+	}
+
+	return response
+}
+
+func observedTransactionToResponse(tx *processing.ObservedTransaction) *model.ObservedPaymentTransaction {
+	return &model.ObservedPaymentTransaction{
+		TransactionHash:       tx.TransactionID,
+		SenderAddress:         tx.SenderAddress,
+		Amount:                tx.Amount,
+		AmountFormatted:       tx.AmountFormatted,
+		Confirmations:         tx.Confirmations,
+		RequiredConfirmations: tx.RequiredConfirmations,
+		IsConfirmed:           tx.IsConfirmed,
+		IsMempool:             tx.IsMempool,
+		ExplorerLink:          tx.ExplorerLink,
 	}
 }

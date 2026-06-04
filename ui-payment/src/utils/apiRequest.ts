@@ -11,9 +11,20 @@ const apiRequest = axios.create({
     withCredentials: true
 });
 
+const isNetworkError = (error: unknown) => axios.isAxiosError(error) && !error.response;
+
+const renderErrorMessage = (error: Error | AxiosError) => {
+    if (isNetworkError(error)) {
+        return "Network error. Invoice will keep retrying.";
+    }
+
+    return error.message;
+};
+
 apiRequest.interceptors.response.use(undefined, function (error: Error | AxiosError) {
-    RenderErrorAlert(error.message);
+    RenderErrorAlert(renderErrorMessage(error));
     return Promise.reject(error);
 });
 
 export default apiRequest;
+export {isNetworkError};

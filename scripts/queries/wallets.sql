@@ -8,6 +8,11 @@ LIMIT 1;
 SELECT wallets.*
 FROM wallets
 WHERE blockchain = $1 and type = $2
+AND (
+    blockchain NOT IN ('BTC', 'LTC')
+    OR (blockchain = 'BTC' AND (lower(address) LIKE 'bc1%' OR lower(address) LIKE 'tb1%'))
+    OR (blockchain = 'LTC' AND (lower(address) LIKE 'ltc1%' OR lower(address) LIKE 'tltc1%'))
+)
 AND NOT EXISTS(
     select id from wallet_locks
     where wallet_id = wallets.id and currency = $3 and network_id = $4

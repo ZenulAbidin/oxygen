@@ -10,7 +10,10 @@ import (
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/server/http/paymentapi"
+	"github.com/oxygenpay/oxygen/internal/service/blockchain"
+	"github.com/oxygenpay/oxygen/internal/service/merchant"
 	"github.com/oxygenpay/oxygen/internal/service/payment"
+	"github.com/oxygenpay/oxygen/internal/service/transaction"
 	"github.com/oxygenpay/oxygen/internal/test"
 	"github.com/oxygenpay/oxygen/internal/util"
 	"github.com/oxygenpay/oxygen/pkg/api-payment/v1/model"
@@ -293,6 +296,86 @@ func TestHandlers(t *testing.T) {
 			require.Nil(t, body.PaymentInfo.SuccessAction)
 			require.Nil(t, body.PaymentInfo.SuccessURL)
 			require.Nil(t, body.PaymentInfo.SuccessMessage)
+		})
+
+		t.Run("Returns observed transaction without updating payment state", func(t *testing.T) {
+			// ARRANGE
+			merchantID := int64(1)
+			p := tc.CreateSamplePayment(t, merchantID)
+
+			_, err := tc.Services.Payment.AssignCustomerByEmail(tc.Context, p, "me@test.com")
+			require.NoError(t, err)
+
+			ticker := "ETH"
+			tc.Providers.TatumMock.SetupRates(ticker, money.USD, 1)
+			tc.SetupCreateWalletWithSubscription(ticker, "0x123", "pubkey-goes-here")
+
+			method, err := tc.Services.Processing.SetPaymentMethod(tc.Context, p, ticker)
+			require.NoError(t, err)
+
+			err = tc.Services.Processing.LockPaymentOptions(tc.Context, p.MerchantID, p.ID)
+			require.NoError(t, err)
+
+			tx := method.TX()
+			txHash := "0xabc123"
+			sender := "0x123-sender"
+			coin := tc.Must.GetBlockchainCoin(t, tx.Currency.Blockchain)
+			networkFee := lo.Must(coin.MakeAmount("1000"))
+
+			tc.Fakes.SetupListIncomingTransactions(tx.RecipientAddress, tx.Currency, tx.IsTest, []blockchain.IncomingTransaction{
+				{
+					Currency:      tx.Currency,
+					Amount:        tx.Amount,
+					SenderAddress: sender,
+					TransactionID: txHash,
+					NetworkID:     tx.NetworkID(),
+					BlockNumber:   100,
+					IsMempool:     true,
+				},
+			})
+			tc.Fakes.SetupGetTransactionReceipt(tx.Currency.Blockchain, txHash, tx.IsTest, &blockchain.TransactionReceipt{
+				Blockchain:    tx.Currency.Blockchain,
+				IsTest:        tx.IsTest,
+				Sender:        sender,
+				Recipient:     tx.RecipientAddress,
+				Hash:          txHash,
+				NetworkFee:    networkFee,
+				Success:       true,
+				Confirmations: 3,
+				IsConfirmed:   false,
+			}, nil)
+
+			// ACT
+			res := tc.
+				GET().
+				Path(paymentRoute).
+				Param(paymentapi.ParamPaymentID, p.PublicID.String()).
+				Do()
+
+			// ASSERT
+			assert.Equal(t, http.StatusOK, res.StatusCode(), res.String())
+
+			var body model.Payment
+			require.NoError(t, res.JSON(&body))
+
+			require.NotNil(t, body.PaymentInfo)
+			require.Equal(t, payment.StatusPending.String(), body.PaymentInfo.Status)
+			require.NotNil(t, body.PaymentInfo.ObservedTransaction)
+			assert.Equal(t, txHash, body.PaymentInfo.ObservedTransaction.TransactionHash)
+			assert.Equal(t, sender, body.PaymentInfo.ObservedTransaction.SenderAddress)
+			assert.Equal(t, int64(3), body.PaymentInfo.ObservedTransaction.Confirmations)
+			assert.Equal(t, int64(12), body.PaymentInfo.ObservedTransaction.RequiredConfirmations)
+			assert.False(t, body.PaymentInfo.ObservedTransaction.IsConfirmed)
+			assert.True(t, body.PaymentInfo.ObservedTransaction.IsMempool)
+
+			tx, err = tc.Services.Transaction.GetByID(tc.Context, p.MerchantID, tx.ID)
+			require.NoError(t, err)
+			assert.Equal(t, transaction.StatusPending, tx.Status)
+			assert.Nil(t, tx.HashID)
+
+			p, err = tc.Services.Payment.GetByID(tc.Context, p.MerchantID, p.ID)
+			require.NoError(t, err)
+			assert.Equal(t, payment.StatusLocked, p.Status)
 		})
 
 		t.Run("Returns successful payment", func(t *testing.T) {
@@ -865,6 +948,10 @@ func TestHandlers(t *testing.T) {
 				}
 
 				if testCase.ticker != "" {
+					require.NoError(t, tc.Services.Merchants.UpsertSettings(tc.Context, mt, merchant.Settings{
+						merchant.PropertyDefaultPaymentExpirationMinutes: "45",
+					}))
+
 					tc.Providers.TatumMock.SetupRates(testCase.ticker, money.USD, 1)
 					tc.SetupCreateWalletWithSubscription(testCase.ticker, "0x0f0f0f999", "pubkey-goes-here")
 
@@ -898,7 +985,7 @@ func TestHandlers(t *testing.T) {
 				assert.True(t, pt.IsLocked)
 				require.Nil(t, pt.PaymentInfo.SuccessURL)
 				require.NotEmpty(t, pt.PaymentInfo.ExpiresAt.String())
-				require.NotEmpty(t, pt.PaymentInfo.ExpirationDurationMin)
+				require.Equal(t, int64(45), pt.PaymentInfo.ExpirationDurationMin)
 				require.NotEmpty(t, pt.PaymentInfo.PaymentLink)
 
 				// check that second multiple calls work

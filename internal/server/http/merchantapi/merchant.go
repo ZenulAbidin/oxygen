@@ -85,6 +85,9 @@ func (h *Handler) GetMerchant(c echo.Context) error {
 			Secret: mt.Settings().WebhookSignatureSecret(),
 			URL:    mt.Settings().WebhookURL(),
 		},
+		PaymentSettings: &model.PaymentSettings{
+			DefaultExpirationMinutes: mt.Settings().DefaultPaymentExpirationMinutes(),
+		},
 		SupportedPaymentMethods: util.MapSlice(methods, func(sc merchant.SupportedCurrency) *model.SupportedPaymentMethod {
 			return &model.SupportedPaymentMethod{
 				Blockchain:     sc.Currency.Blockchain.String(),
@@ -151,6 +154,22 @@ func (h *Handler) UpdateMerchantWebhook(c echo.Context) error {
 
 	if err := h.merchants.UpsertSettings(ctx, mt, upsert); err != nil {
 		return err
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) UpdateMerchantPaymentSettings(c echo.Context) error {
+	var req model.PaymentSettings
+	if valid := common.BindAndValidateRequest(c, &req); !valid {
+		return nil
+	}
+
+	ctx := c.Request().Context()
+	mt := middleware.ResolveMerchant(c)
+
+	if err := h.merchants.UpdatePaymentSettings(ctx, mt, req.DefaultExpirationMinutes); err != nil {
+		return common.ValidationErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

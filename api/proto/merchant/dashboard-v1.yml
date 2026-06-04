@@ -44,6 +44,9 @@ paths:
   /merchant/{merchantId}/webhook:
     $ref: './v1/merchant.yml#/paths/~1merchant~1{merchantId}~1webhook'
 
+  /merchant/{merchantId}/payment-settings:
+    $ref: './v1/merchant.yml#/paths/~1merchant~1{merchantId}~1payment-settings'
+
   /merchant/{merchantId}/supported-method:
     $ref: './v1/merchant.yml#/paths/~1merchant~1{merchantId}~1supported-method'
 

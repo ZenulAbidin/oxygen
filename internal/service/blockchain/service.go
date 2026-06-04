@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jellydator/ttlcache/v3"
+	"github.com/oxygenpay/oxygen/internal/provider/chain"
 	"github.com/oxygenpay/oxygen/internal/provider/tatum"
 	"github.com/oxygenpay/oxygen/internal/provider/trongrid"
 	client "github.com/oxygenpay/tatum-sdk/tatum"
@@ -18,9 +19,11 @@ var (
 	ErrParseMoney         = errors.New("unable to parse money value")
 	ErrInsufficientFunds  = errors.New("wallet has insufficient funds")
 	ErrInvalidTransaction = errors.New("transaction is invalid")
+	ErrUnsupportedRuntime = errors.New("unsupported blockchain runtime path")
 )
 
 type Providers struct {
+	Chain    *chain.Provider
 	Tatum    *tatum.Provider
 	Trongrid *trongrid.Provider
 }

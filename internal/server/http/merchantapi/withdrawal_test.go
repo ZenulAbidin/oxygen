@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/oxygenpay/oxygen/internal/db/repository"
+	kmswallet "github.com/oxygenpay/oxygen/internal/kms/wallet"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/service/merchant"
 	"github.com/oxygenpay/oxygen/internal/service/payment"
@@ -333,6 +335,46 @@ func TestWithdrawalRoutes(t *testing.T) {
 				assert.Equal(t, "amount", body.Errors[0].Field)
 				assert.Contains(t, body.Errors[0].Message, "not enough funds")
 			})
+
+			t.Run("Unsupported currency returns validation error", func(t *testing.T) {
+				mt, _ := tc.Must.CreateMerchant(t, user.ID)
+
+				addr, err := tc.Services.Merchants.CreateMerchantAddress(tc.Context, mt.ID, merchant.CreateMerchantAddressParams{
+					Name:       "ETH Address",
+					Blockchain: kmswallet.ETH,
+					Address:    "0x690b9a9e9aa1c9db991c7721a92d351db4fac992",
+				})
+				require.NoError(t, err)
+
+				balance := tc.Must.CreateBalance(t, wallet.EntityTypeMerchant, mt.ID, func(p *repository.CreateBalanceParams) {
+					p.Network = "ETH"
+					p.NetworkID = "mainnet"
+					p.CurrencyType = string(money.Coin)
+					p.Currency = "DOGE"
+					p.Decimals = 8
+					p.Amount = repository.MoneyToNumeric(money.MustCryptoFromRaw("DOGE", "50000000", 8))
+				})
+
+				req := model.CreateWithdrawalRequest{
+					AddressID: addr.UUID.String(),
+					BalanceID: balance.UUID.String(),
+					Amount:    "0.1",
+				}
+
+				res := tc.Client.
+					POST().
+					Path(withdrawalsRoute).
+					WithToken(token).
+					Param(paramMerchantID, mt.UUID.String()).
+					JSON(&req).
+					Do()
+
+				var body model.ErrorResponse
+				assert.Equal(t, http.StatusBadRequest, res.StatusCode(), res.String())
+				assert.NoError(t, res.JSON(&body))
+				require.Len(t, body.Errors, 1)
+				assert.Equal(t, "unsupported currency", body.Errors[0].Message)
+			})
 		})
 	})
 
@@ -465,6 +507,33 @@ func TestWithdrawalRoutes(t *testing.T) {
 			// ASSERT
 			assert.Equal(t, http.StatusBadRequest, res.StatusCode())
 			assert.Contains(t, res.String(), "balance not found")
+		})
+
+		t.Run("Unsupported currency returns validation error", func(t *testing.T) {
+			mt, _ := tc.Must.CreateMerchant(t, user.ID)
+
+			balance := tc.Must.CreateBalance(t, wallet.EntityTypeMerchant, mt.ID, func(p *repository.CreateBalanceParams) {
+				p.Network = "ETH"
+				p.NetworkID = "mainnet"
+				p.CurrencyType = string(money.Coin)
+				p.Currency = "DOGE"
+				p.Decimals = 8
+				p.Amount = repository.MoneyToNumeric(money.MustCryptoFromRaw("DOGE", "50000000", 8))
+			})
+
+			res := tc.Client.
+				GET().
+				Path(withdrawalFeeRoute).
+				WithToken(token).
+				Param(paramMerchantID, mt.UUID.String()).
+				Query(queryParamBalanceID, balance.UUID.String()).
+				Do()
+
+			var body model.ErrorResponse
+			assert.Equal(t, http.StatusBadRequest, res.StatusCode(), res.String())
+			assert.NoError(t, res.JSON(&body))
+			require.Len(t, body.Errors, 1)
+			assert.Equal(t, "unsupported currency", body.Errors[0].Message)
 		})
 	})
 }

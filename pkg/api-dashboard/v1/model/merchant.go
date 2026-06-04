@@ -27,6 +27,9 @@ type Merchant struct {
 	// Example: My Store
 	Name string `json:"name,omitempty"`
 
+	// payment settings
+	PaymentSettings *PaymentSettings `json:"paymentSettings"`
+
 	// supported payment methods
 	SupportedPaymentMethods []*SupportedPaymentMethod `json:"supportedPaymentMethods"`
 
@@ -43,6 +46,10 @@ func (m *Merchant) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateSupportedPaymentMethods(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validatePaymentSettings(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -80,6 +87,23 @@ func (m *Merchant) validateSupportedPaymentMethods(formats strfmt.Registry) erro
 	return nil
 }
 
+func (m *Merchant) validatePaymentSettings(formats strfmt.Registry) error {
+	if swag.IsZero(m.PaymentSettings) { // not required
+		return nil
+	}
+
+	if m.PaymentSettings != nil {
+		if err := m.PaymentSettings.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("paymentSettings")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *Merchant) validateWebhookSettings(formats strfmt.Registry) error {
 	if swag.IsZero(m.WebhookSettings) { // not required
 		return nil
@@ -102,6 +126,10 @@ func (m *Merchant) ContextValidate(ctx context.Context, formats strfmt.Registry)
 	var res []error
 
 	if err := m.contextValidateSupportedPaymentMethods(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidatePaymentSettings(ctx, formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -128,6 +156,19 @@ func (m *Merchant) contextValidateSupportedPaymentMethods(ctx context.Context, f
 			}
 		}
 
+	}
+
+	return nil
+}
+
+func (m *Merchant) contextValidatePaymentSettings(ctx context.Context, formats strfmt.Registry) error {
+	if m.PaymentSettings != nil {
+		if err := m.PaymentSettings.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("paymentSettings")
+			}
+			return err
+		}
 	}
 
 	return nil

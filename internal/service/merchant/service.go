@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -177,6 +178,10 @@ func (s *Service) ListSupportedCurrencies(_ context.Context, merchant *Merchant)
 }
 
 func (s *Service) UpsertSettings(ctx context.Context, merchant *Merchant, settings Settings) error {
+	if merchant.settings == nil {
+		merchant.settings = make(Settings)
+	}
+
 	for prop, value := range settings {
 		merchant.settings[prop] = value
 	}
@@ -211,6 +216,20 @@ func (s *Service) UpdateSupportedMethods(ctx context.Context, merchant *Merchant
 	return s.UpsertSettings(ctx, merchant, Settings{
 		// example: "ETH,ETH_USDT"
 		PropertyPaymentMethods: strings.Join(util.Keys(tickersSet), ","),
+	})
+}
+
+func (s *Service) UpdatePaymentSettings(
+	ctx context.Context,
+	merchant *Merchant,
+	defaultExpirationMinutes int64,
+) error {
+	if err := ValidatePaymentExpirationMinutes(defaultExpirationMinutes); err != nil {
+		return err
+	}
+
+	return s.UpsertSettings(ctx, merchant, Settings{
+		PropertyDefaultPaymentExpirationMinutes: strconv.FormatInt(defaultExpirationMinutes, 10),
 	})
 }
 

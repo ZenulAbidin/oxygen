@@ -297,6 +297,19 @@ func (s *Service) getTatumExchangeRate(ctx context.Context, desired, selected st
 		}
 	}
 
+	if !s.providers.Tatum.HasMainAPIKey() {
+		res, ok := fallbackExchangeRate(desired, selected)
+		if !ok {
+			return client.ExchangeRate{}, errors.Wrapf(ErrCurrencyNotFound, "%s/%s", selected, desired)
+		}
+
+		if s.ratesCache != nil {
+			s.ratesCache.Set(key, res, ttlcache.DefaultTTL)
+		}
+
+		return res, nil
+	}
+
 	opts := &client.ExchangeRateApiGetExchangeRateOpts{BasePair: optional.NewString(desired)}
 	res, _, err := s.providers.Tatum.Main().ExchangeRateApi.GetExchangeRate(ctx, selected, opts)
 	if err != nil {
@@ -308,6 +321,47 @@ func (s *Service) getTatumExchangeRate(ctx context.Context, desired, selected st
 	}
 
 	return res, err
+}
+
+var fallbackUSDExchangeRates = map[string]float64{
+	"USD":   1,
+	"EUR":   1.08,
+	"BTC":   65000,
+	"LTC":   85,
+	"ETH":   3000,
+	"MATIC": 1,
+	"TRON":  0.1,
+	"BNB":   600,
+	"USDT":  1,
+	"USDC":  1,
+	"BUSD":  1,
+}
+
+func fallbackExchangeRate(desired, selected string) (client.ExchangeRate, bool) {
+	desired = NormalizeTicker(desired)
+	selected = NormalizeTicker(selected)
+
+	if desired == selected {
+		return makeFallbackExchangeRate(desired, selected, 1), true
+	}
+
+	selectedUSD, selectedOK := fallbackUSDExchangeRates[selected]
+	desiredUSD, desiredOK := fallbackUSDExchangeRates[desired]
+	if !selectedOK || !desiredOK || desiredUSD == 0 {
+		return client.ExchangeRate{}, false
+	}
+
+	return makeFallbackExchangeRate(desired, selected, selectedUSD/desiredUSD), true
+}
+
+func makeFallbackExchangeRate(desired, selected string, rate float64) client.ExchangeRate {
+	return client.ExchangeRate{
+		Id:        selected,
+		BasePair:  desired,
+		Value:     strconv.FormatFloat(rate, 'f', -1, 64),
+		Timestamp: float64(time.Now().UnixMilli()),
+		Source:    "local-fallback",
+	}
 }
 
 func determineConversionType(from, to string) (ConversionType, error) {

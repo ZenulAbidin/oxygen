@@ -15,6 +15,7 @@ import (
 const (
 	merchantRoute         = "/api/dashboard/v1/merchant/:merchantId"
 	webhookRoute          = "/api/dashboard/v1/merchant/:merchantId/webhook"
+	paymentSettingsRoute  = "/api/dashboard/v1/merchant/:merchantId/payment-settings"
 	supportedMethodsRoute = "/api/dashboard/v1/merchant/:merchantId/supported-method"
 )
 
@@ -83,6 +84,72 @@ func TestMerchantRoutes(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, res.StatusCode())
 		assert.Contains(t, res.String(), "url is invalid")
+	})
+
+	t.Run("PaymentSettingsRoute", func(t *testing.T) {
+		// ARRANGE
+		// Given a merchant
+		mt, _ := tc.Must.CreateMerchant(t, user.ID)
+
+		// ACT 1
+		// Get merchant
+		res := tc.Client.
+			GET().
+			Path(merchantRoute).
+			WithToken(token).
+			Param(paramMerchantID, mt.UUID.String()).
+			Do()
+
+		// ASSERT
+		output := &model.Merchant{}
+
+		assert.Equal(t, http.StatusOK, res.StatusCode())
+		assert.NoError(t, res.JSON(output))
+		if assert.NotNil(t, output.PaymentSettings) {
+			assert.Equal(t, int64(20), output.PaymentSettings.DefaultExpirationMinutes)
+		}
+
+		// ACT 2
+		// Set payment settings
+		req := &model.PaymentSettings{DefaultExpirationMinutes: 45}
+		res = tc.Client.
+			PUT().
+			Path(paymentSettingsRoute).
+			WithToken(token).
+			JSON(req).
+			Param(paramMerchantID, mt.UUID.String()).
+			Do()
+
+		// ASSERT
+		assert.Equal(t, http.StatusNoContent, res.StatusCode())
+
+		// ACT 3
+		// Check that data was updated
+		res = tc.Client.
+			GET().
+			Path(merchantRoute).
+			WithToken(token).
+			Param(paramMerchantID, mt.UUID.String()).
+			Do()
+
+		assert.Equal(t, http.StatusOK, res.StatusCode())
+		assert.NoError(t, res.JSON(output))
+		if assert.NotNil(t, output.PaymentSettings) {
+			assert.Equal(t, req, output.PaymentSettings)
+		}
+
+		// ACT 4
+		// Send invalid request
+		req = &model.PaymentSettings{DefaultExpirationMinutes: 0}
+		res = tc.Client.
+			PUT().
+			Path(paymentSettingsRoute).
+			WithToken(token).
+			JSON(req).
+			Param(paramMerchantID, mt.UUID.String()).
+			Do()
+
+		assert.Equal(t, http.StatusBadRequest, res.StatusCode())
 	})
 
 	t.Run("SupportedMethodRoute", func(t *testing.T) {

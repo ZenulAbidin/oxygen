@@ -11,6 +11,7 @@ import (
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/server/http/common"
 	"github.com/oxygenpay/oxygen/internal/server/http/middleware"
+	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/service/merchant"
 	"github.com/oxygenpay/oxygen/internal/service/payment"
 	"github.com/oxygenpay/oxygen/internal/service/wallet"
@@ -44,6 +45,10 @@ func (h *Handler) CreateWithdrawal(c echo.Context) error {
 		return common.ValidationErrorItemResponse(c, "addressId", "address not found")
 	case errors.Is(err, wallet.ErrBalanceNotFound):
 		return common.ValidationErrorItemResponse(c, "balanceId", "balance not found")
+	case errors.Is(err, blockchain.ErrCurrencyNotFound):
+		return common.ValidationErrorResponse(c, "unsupported currency")
+	case errors.Is(err, payment.ErrValidation), errors.Is(err, blockchain.ErrUnsupportedRuntime):
+		return common.ValidationErrorResponse(c, err)
 	case errors.Is(err, payment.ErrAddressBalanceMismatch):
 		return common.ValidationErrorItemResponse(c, "balanceId", "balance does not match to address")
 	case errors.Is(err, money.ErrParse):
@@ -74,6 +79,10 @@ func (h *Handler) GetWithdrawalFee(c echo.Context) error {
 	switch {
 	case errors.Is(err, wallet.ErrBalanceNotFound):
 		return common.ValidationErrorItemResponse(c, "balanceId", "balance not found")
+	case errors.Is(err, blockchain.ErrCurrencyNotFound):
+		return common.ValidationErrorResponse(c, "unsupported currency")
+	case errors.Is(err, payment.ErrValidation), errors.Is(err, blockchain.ErrUnsupportedRuntime):
+		return common.ValidationErrorResponse(c, err)
 	case err != nil:
 		return errors.Wrap(err, "unable to get withdrawal fee")
 	}

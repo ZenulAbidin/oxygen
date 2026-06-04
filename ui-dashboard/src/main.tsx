@@ -17,7 +17,7 @@ if (posthogConfig.apiKey) {
 }
 
 function determineBasename(): string {
-    const rootPath = import.meta.env.VITE_ROOTPATH as string;
+    const rootPath = (import.meta.env.VITE_ROOTPATH as string | undefined) ?? import.meta.env.BASE_URL ?? "";
 
     if (rootPath.length === 0 || rootPath === "/") {
         return "/";

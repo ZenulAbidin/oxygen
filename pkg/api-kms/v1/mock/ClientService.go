@@ -47,6 +47,39 @@ func (_m *ClientService) CreateBSCTransaction(params *wallet.CreateBSCTransactio
 	return r0, r1
 }
 
+// CreateBitcoinTransaction provides a mock function with given fields: params, opts
+func (_m *ClientService) CreateBitcoinTransaction(params *wallet.CreateBitcoinTransactionParams, opts ...wallet.ClientOption) (*wallet.CreateBitcoinTransactionCreated, error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, params)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	var r0 *wallet.CreateBitcoinTransactionCreated
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*wallet.CreateBitcoinTransactionParams, ...wallet.ClientOption) (*wallet.CreateBitcoinTransactionCreated, error)); ok {
+		return rf(params, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(*wallet.CreateBitcoinTransactionParams, ...wallet.ClientOption) *wallet.CreateBitcoinTransactionCreated); ok {
+		r0 = rf(params, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*wallet.CreateBitcoinTransactionCreated)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*wallet.CreateBitcoinTransactionParams, ...wallet.ClientOption) error); ok {
+		r1 = rf(params, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CreateEthereumTransaction provides a mock function with given fields: params, opts
 func (_m *ClientService) CreateEthereumTransaction(params *wallet.CreateEthereumTransactionParams, opts ...wallet.ClientOption) (*wallet.CreateEthereumTransactionCreated, error) {
 	_va := make([]interface{}, len(opts))

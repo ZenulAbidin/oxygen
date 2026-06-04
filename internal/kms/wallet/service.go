@@ -113,6 +113,24 @@ func (s *Service) CreateBSCTransaction(_ context.Context, wt *Wallet, params Eth
 	return bsc.NewTransaction(wt, params)
 }
 
+func (s *Service) CreateBitcoinTransaction(_ context.Context, wt *Wallet, params BitcoinTransactionParams) (string, error) {
+	if !isUTXOBlockchain(wt.Blockchain) {
+		return "", errors.Wrapf(ErrUnknownBlockchain, "%s does not support UTXO transaction signing", wt.Blockchain)
+	}
+
+	provider, ok := s.generator.providers[wt.Blockchain]
+	if !ok {
+		return "", errors.Errorf("%s provider not found", wt.Blockchain)
+	}
+
+	btc, ok := provider.(*BitcoinProvider)
+	if !ok {
+		return "", errors.Errorf("%s provider is invalid", wt.Blockchain)
+	}
+
+	return btc.NewTransaction(wt, params)
+}
+
 func (s *Service) CreateTronTransaction(
 	ctx context.Context, wallet *Wallet, params TronTransactionParams,
 ) (TronTransaction, error) {

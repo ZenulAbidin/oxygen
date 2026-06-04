@@ -27,6 +27,7 @@ type BlockchainService interface {
 	blockchain.Convertor
 	blockchain.Broadcaster
 	blockchain.FeeCalculator
+	blockchain.Tracker
 }
 
 type Service struct {
@@ -113,6 +114,8 @@ type PaymentInfo struct {
 	Amount          string
 	AmountFormatted string
 
+	ObservedTransaction *ObservedTransaction
+
 	ExpiresAt             time.Time
 	ExpirationDurationMin int64
 
@@ -187,6 +190,16 @@ func (s *Service) GetDetailedPayment(ctx context.Context, merchantID, paymentID 
 			SuccessAction:  pt.PublicSuccessAction(),
 			SuccessURL:     pt.PublicSuccessURL(),
 			SuccessMessage: pt.PublicSuccessMessage(),
+		}
+
+		observed, err := s.ObserveIncomingTransaction(ctx, tx)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Int64("transaction_id", tx.ID).
+				Msg("unable to observe incoming transaction")
+		} else {
+			result.PaymentInfo.ObservedTransaction = observed
 		}
 	}
 
@@ -360,8 +373,8 @@ func (s *Service) createIncomingTransaction(
 
 	usdAmount := conv.To
 
-	// 2. Acquire available inbound wallet or create one.
-	acquiredWallet, err := s.wallets.AcquireLock(ctx, pt.MerchantID, currency, pt.IsTest)
+	// 2. Create a single-use inbound wallet for this payment.
+	acquiredWallet, err := s.wallets.AcquireFreshLock(ctx, pt.MerchantID, currency, pt.IsTest)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to acquire wallet")
 	}
@@ -426,6 +439,14 @@ func (s *Service) changePaymentMethod(
 }
 
 func (s *Service) ensureWalletSubscription(ctx context.Context, w *wallet.Wallet, currency money.CryptoCurrency) error {
+	if s.tatumProvider == nil {
+		s.logger.Warn().
+			Int64("wallet_id", w.ID).
+			Str("wallet_address", w.Address).
+			Msg("skipping Tatum subscription because provider is not configured")
+		return nil
+	}
+
 	params := func(networkID string, isTest bool) tatum.SubscriptionParams {
 		return tatum.SubscriptionParams{
 			Blockchain: w.Blockchain.ToMoneyBlockchain(),
@@ -440,21 +461,29 @@ func (s *Service) ensureWalletSubscription(ctx context.Context, w *wallet.Wallet
 	if w.TatumSubscription.TestnetSubscriptionID == "" {
 		id, err := s.tatumProvider.SubscribeToWebhook(ctx, params(currency.TestNetworkID, true))
 		if err != nil {
-			return errors.Wrap(err, "unable to subscribe to webhooks for testnet")
+			s.logger.Warn().
+				Err(err).
+				Int64("wallet_id", w.ID).
+				Str("wallet_address", w.Address).
+				Msg("unable to subscribe to Tatum webhooks for testnet")
+		} else {
+			w.TatumSubscription.TestnetSubscriptionID = id
+			updateRecord = true
 		}
-
-		w.TatumSubscription.TestnetSubscriptionID = id
-		updateRecord = true
 	}
 
 	if w.TatumSubscription.MainnetSubscriptionID == "" {
 		id, err := s.tatumProvider.SubscribeToWebhook(ctx, params(currency.NetworkID, false))
 		if err != nil {
-			return errors.Wrap(err, "unable to subscribe to webhooks for mainnet")
+			s.logger.Warn().
+				Err(err).
+				Int64("wallet_id", w.ID).
+				Str("wallet_address", w.Address).
+				Msg("unable to subscribe to Tatum webhooks for mainnet")
+		} else {
+			w.TatumSubscription.MainnetSubscriptionID = id
+			updateRecord = true
 		}
-
-		w.TatumSubscription.MainnetSubscriptionID = id
-		updateRecord = true
 	}
 
 	if updateRecord {

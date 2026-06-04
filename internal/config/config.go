@@ -12,6 +12,7 @@ import (
 	"github.com/oxygenpay/oxygen/internal/db/connection/bolt"
 	"github.com/oxygenpay/oxygen/internal/db/connection/pg"
 	"github.com/oxygenpay/oxygen/internal/log"
+	"github.com/oxygenpay/oxygen/internal/provider/chain"
 	"github.com/oxygenpay/oxygen/internal/provider/tatum"
 	"github.com/oxygenpay/oxygen/internal/provider/trongrid"
 	"github.com/oxygenpay/oxygen/internal/server/http"
@@ -57,6 +58,7 @@ type KMS struct {
 }
 
 type Providers struct {
+	Chain     chain.Config    `yaml:"chain"`
 	Tatum     tatum.Config    `yaml:"tatum"`
 	Trongrid  trongrid.Config `yaml:"trongrid"`
 	KmsClient client.Config   `yaml:"kms"`

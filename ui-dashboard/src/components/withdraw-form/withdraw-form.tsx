@@ -78,8 +78,24 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
     const [availableBalance, setAvailableBalance] = React.useState<string>("");
     const [fee, setFee] = React.useState<ServiceFee>();
     const [isFormOpen, changeIsFormOpen] = React.useState<boolean>(false);
-    const nullAmount = new BigFloat(0);
-    const maxAmount = new BigFloat(props.balance.amount);
+    const nullAmount = React.useMemo(() => new BigFloat(0), []);
+    const maxWithdrawalAmount = React.useMemo(() => {
+        if (props.balance.amount === "empty") {
+            return nullAmount.toString();
+        }
+
+        const balanceAmount = new BigFloat(props.balance.amount);
+        if (!fee) {
+            return balanceAmount.toString();
+        }
+
+        const nextMaxAmount = balanceAmount.sub(fee.currencyFee);
+        if (nextMaxAmount.lessThan(nullAmount)) {
+            return nullAmount.toString();
+        }
+
+        return nextMaxAmount.toString();
+    }, [fee?.currencyFee, nullAmount, props.balance.amount]);
 
     const balanceId = `${props.balance.blockchainName} ${props.balance.ticker} ${
         props.balance.isTest ? "⚠️ testnet balance" : ""
@@ -148,7 +164,8 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
     };
 
     const normalizeAmount = () => {
-        const convertedAmount = new BigFloat(0).add(parseFloat(amount));
+        const convertedAmount = new BigFloat(0).add(amount);
+        const maxAmount = new BigFloat(maxWithdrawalAmount);
         let res = amount;
 
         if (convertedAmount.lessThan(nullAmount)) {
@@ -160,6 +177,11 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
         }
 
         return res;
+    };
+
+    const applyMaxAmount = () => {
+        changeAmount(maxWithdrawalAmount);
+        form.setFieldValue("amount", maxWithdrawalAmount);
     };
 
     useMount(async () => {
@@ -199,7 +221,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
             return "loading...";
         }
 
-        const total = new BigFloat(0).add(parseFloat(amount)).add(parseFloat(fee.currencyFee));
+        const total = new BigFloat(0).add(amount).add(fee.currencyFee);
         const splitedTotal = total.toString().split(".");
 
         const amountSplitByDot = amount.split(".");
@@ -235,7 +257,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
             return "0";
         }
 
-        const total = new BigFloat(0).add(parseFloat(convertedAmount)).add(parseFloat(fee.usdFee));
+        const total = new BigFloat(0).add(convertedAmount).add(fee.usdFee);
 
         return total.toString();
     };
@@ -355,17 +377,29 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
                                 <InputNumber
                                     stringMode
                                     onBlur={(e) => changeAmount(e.target.value)}
-                                    precision={7}
-                                    min={0.0}
-                                    max={parseFloat(props.balance.amount)}
+                                    min="0"
+                                    max={maxWithdrawalAmount}
                                     className={b("currency-input")}
                                 />
+                                <Button
+                                    type="default"
+                                    onClick={applyMaxAmount}
+                                    disabled={!fee || !new BigFloat(maxWithdrawalAmount).greaterThan(nullAmount)}
+                                    className={b("currency-max-button")}
+                                >
+                                    Max
+                                </Button>
                             </Space.Compact>
                         </Form.Item>
-                        <Typography.Text type="secondary" className={b("note-text")}>
-                            {`Note: minimal withdrawal amount for ${props.balance.ticker} is`}{" "}
-                            <Typography.Text strong>{`$${props.balance.minimalWithdrawalAmountUSD}`}</Typography.Text>
-                        </Typography.Text>
+                        {fee && (
+                            <Typography.Text type="secondary" className={b("note-text")}>
+                                {`Minimum withdrawal amount for ${props.balance.ticker} follows the current withdrawal fee: `}
+                                <Typography.Text strong>
+                                    {`${fee.currencyFee} ${fee.currency}`}
+                                    {!fee.isTest && ` ($${fee.usdFee})`}
+                                </Typography.Text>
+                            </Typography.Text>
+                        )}
                         <Table
                             columns={columns}
                             dataSource={getPaymentsDetails()}

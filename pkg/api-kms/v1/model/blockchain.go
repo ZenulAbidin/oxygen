@@ -24,6 +24,9 @@ const (
 	// BlockchainBTC captures enum value "BTC"
 	BlockchainBTC Blockchain = "BTC"
 
+	// BlockchainLTC captures enum value "LTC"
+	BlockchainLTC Blockchain = "LTC"
+
 	// BlockchainETH captures enum value "ETH"
 	BlockchainETH Blockchain = "ETH"
 
@@ -42,7 +45,7 @@ var blockchainEnum []interface{}
 
 func init() {
 	var res []Blockchain
-	if err := json.Unmarshal([]byte(`["BTC","ETH","TRON","MATIC","BSC"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["BTC","LTC","ETH","TRON","MATIC","BSC"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

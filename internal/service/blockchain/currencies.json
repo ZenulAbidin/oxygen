@@ -1,5 +1,29 @@
 [
     {
+        "blockchain": "BTC",
+        "blockchainName": "Bitcoin",
+        "ticker": "BTC",
+        "type": "coin",
+        "name": "BTC",
+        "decimals": "8",
+        "networkId": "mainnet",
+        "testNetworkId": "testnet",
+        "minimal_withdrawal_amount_usd": "40",
+        "minimal_instant_internal_transfer_amount_usd": "40"
+    },
+    {
+        "blockchain": "LTC",
+        "blockchainName": "Litecoin",
+        "ticker": "LTC",
+        "type": "coin",
+        "name": "LTC",
+        "decimals": "8",
+        "networkId": "mainnet",
+        "testNetworkId": "testnet",
+        "minimal_withdrawal_amount_usd": "40",
+        "minimal_instant_internal_transfer_amount_usd": "40"
+    },
+    {
         "blockchain": "ETH",
         "blockchainName": "Ethereum",
         "ticker": "ETH",

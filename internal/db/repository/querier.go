@@ -27,6 +27,7 @@ type Querier interface {
 	CreateRegistryItem(ctx context.Context, arg CreateRegistryItemParams) (Registry, error)
 	CreateTransaction(ctx context.Context, arg CreateTransactionParams) (Transaction, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateBitcoinUTXOReservation(ctx context.Context, arg CreateBitcoinUTXOReservationParams) (BitcoinUTXOReservation, error)
 	CreateWallet(ctx context.Context, arg CreateWalletParams) (Wallet, error)
 	CreateWalletLock(ctx context.Context, arg CreateWalletLockParams) (WalletLock, error)
 	DeleteAPITokenByID(ctx context.Context, id int64) error
@@ -49,6 +50,7 @@ type Querier interface {
 	GetCustomerByID(ctx context.Context, arg GetCustomerByIDParams) (Customer, error)
 	GetCustomerByUUID(ctx context.Context, arg GetCustomerByUUIDParams) (Customer, error)
 	GetLatestTransactionByPaymentID(ctx context.Context, entityID sql.NullInt64) (Transaction, error)
+	ListActiveBitcoinUTXOReservations(ctx context.Context, arg ListActiveBitcoinUTXOReservationsParams) ([]BitcoinUTXOReservation, error)
 	GetMerchantAddressByAddress(ctx context.Context, arg GetMerchantAddressByAddressParams) (MerchantAddress, error)
 	GetMerchantAddressByID(ctx context.Context, arg GetMerchantAddressByIDParams) (MerchantAddress, error)
 	GetMerchantAddressByUUID(ctx context.Context, arg GetMerchantAddressByUUIDParams) (MerchantAddress, error)
@@ -89,6 +91,10 @@ type Querier interface {
 	PaginatePaymentsAsc(ctx context.Context, arg PaginatePaymentsAscParams) ([]Payment, error)
 	PaginatePaymentsDesc(ctx context.Context, arg PaginatePaymentsDescParams) ([]Payment, error)
 	PaginateWalletsByID(ctx context.Context, arg PaginateWalletsByIDParams) ([]Wallet, error)
+	AttachBitcoinUTXOReservationRawTX(ctx context.Context, arg AttachBitcoinUTXOReservationRawTXParams) error
+	MarkBitcoinUTXOReservationsBroadcastedByRawTX(ctx context.Context, arg MarkBitcoinUTXOReservationsBroadcastedByRawTXParams) error
+	ReleaseBitcoinUTXOReservation(ctx context.Context, arg ReleaseBitcoinUTXOReservationParams) error
+	ReleaseBitcoinUTXOReservationsByRawTX(ctx context.Context, arg ReleaseBitcoinUTXOReservationsByRawTXParams) error
 	ReleaseWalletLock(ctx context.Context, id int64) error
 	SetTransactionHash(ctx context.Context, arg SetTransactionHashParams) error
 	SoftDeleteMerchantByUUID(ctx context.Context, uuid uuid.UUID) error

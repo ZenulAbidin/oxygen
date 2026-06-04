@@ -10,6 +10,8 @@ import (
 	"github.com/oxygenpay/oxygen/internal/bus"
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	"github.com/oxygenpay/oxygen/internal/money"
+	"github.com/oxygenpay/oxygen/internal/service/blockchain"
+	"github.com/oxygenpay/oxygen/internal/service/wallet"
 	"github.com/oxygenpay/oxygen/internal/util"
 	"github.com/pkg/errors"
 )
@@ -76,8 +78,16 @@ func (s *Service) CreateWithdrawal(ctx context.Context, merchantID int64, props 
 		return nil, ErrAddressBalanceMismatch
 	}
 
+	currency, err := s.blockchain.GetCurrencyByTicker(ticker)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to get currency %q", ticker)
+	}
+	if err := validateWithdrawalRuntimeCurrency(currency); err != nil {
+		return nil, err
+	}
+
 	// 2. Check if balance has sufficient funds
-	withdrawalFee, err := s.GetWithdrawalFee(ctx, merchantID, balance.UUID)
+	withdrawalFee, err := s.getWithdrawalFee(ctx, balance, currency)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get withdrawal fee")
 	}
@@ -95,36 +105,18 @@ func (s *Service) CreateWithdrawal(ctx context.Context, merchantID int64, props 
 		)
 	}
 
-	// 2. Check if amount more than minimal
-	minimalUSDLimit, err := s.blockchain.GetMinimalWithdrawalByTicker(ticker)
-	if err != nil {
-		return nil, errors.Wrapf(err, "unable to get minimal withdrawal amount for %q", ticker)
-	}
-
-	currency, err := s.blockchain.GetCurrencyByTicker(ticker)
-	if err != nil {
-		return nil, errors.Wrapf(err, "unable to get currency %q", ticker)
-	}
-
-	conversion, err := s.blockchain.FiatToCrypto(ctx, minimalUSDLimit, currency)
-	if err != nil {
-		return nil, errors.Wrapf(err, "unable to convert USD to crypto %q", ticker)
-	}
-
-	// minimal amount that can be withdrawn from merchant's balance
-	minimalCryptoLimit := conversion.To
-
-	if !amount.CompatibleTo(minimalCryptoLimit) {
+	// The minimum withdrawal follows the currently estimated withdrawal fee,
+	// not a static USD floor.
+	if !amount.CompatibleTo(withdrawalFee.CryptoFee) {
 		return nil, money.ErrIncompatibleMoney
 	}
 
-	if amount.LessThan(minimalCryptoLimit) {
+	if amount.LessThan(withdrawalFee.CryptoFee) {
 		return nil, errors.Wrapf(
 			ErrWithdrawalAmountTooSmall,
-			"minimum withdrawal amount is %s %s ($%s)",
-			minimalCryptoLimit.String(),
-			minimalCryptoLimit.Ticker(),
-			minimalUSDLimit.String(),
+			"minimum withdrawal amount is %s %s (estimated withdrawal fee)",
+			withdrawalFee.CryptoFee.String(),
+			withdrawalFee.CryptoFee.Ticker(),
 		)
 	}
 
@@ -187,8 +179,18 @@ func (s *Service) GetWithdrawalFee(ctx context.Context, merchantID int64, balanc
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to  get currency by ticker")
 	}
+	if err := validateWithdrawalRuntimeCurrency(currency); err != nil {
+		return nil, err
+	}
 
-	// e.g. ETH
+	return s.getWithdrawalFee(ctx, balance, currency)
+}
+
+func (s *Service) getWithdrawalFee(
+	ctx context.Context,
+	balance *wallet.Balance,
+	currency money.CryptoCurrency,
+) (*WithdrawalFee, error) {
 	baseCurrency, err := s.blockchain.GetNativeCoin(currency.Blockchain)
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to get currency by ticker")
@@ -214,4 +216,12 @@ func (s *Service) GetWithdrawalFee(ctx context.Context, merchantID int64, balanc
 		USDFee:       usdFee,
 		CryptoFee:    conv.To,
 	}, nil
+}
+
+func validateWithdrawalRuntimeCurrency(currency money.CryptoCurrency) error {
+	if err := blockchain.ValidateTransactionRuntimeBlockchain(currency.Blockchain); err != nil {
+		return errors.Wrapf(ErrValidation, "%s withdrawals require dedicated runtime support", currency.Blockchain)
+	}
+
+	return nil
 }

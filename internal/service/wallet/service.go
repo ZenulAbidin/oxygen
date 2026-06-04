@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v4"
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	kmswallet "github.com/oxygenpay/oxygen/internal/kms/wallet"
+	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	kmsclient "github.com/oxygenpay/oxygen/pkg/api-kms/v1/client/wallet"
 	kmsmodel "github.com/oxygenpay/oxygen/pkg/api-kms/v1/model"
@@ -20,8 +21,11 @@ var (
 	ErrBalanceNotFound              = errors.New("balance not found")
 	ErrInvalidBlockchain            = errors.New("invalid blockchain provided")
 	ErrInvalidType                  = errors.New("invalid type provided")
+	ErrUnsupportedAddressFormat     = errors.New("unsupported wallet address format")
 	ErrInsufficientBalance          = errors.New("insufficient balance")
 	ErrInsufficienceMerchantBalance = errors.Wrap(ErrInsufficientBalance, "merchant")
+	ErrUnsupportedTransactionPath   = errors.New("unsupported blockchain transaction path")
+	ErrUTXOReservationConflict      = errors.New("bitcoin utxo reservation conflict")
 )
 
 const (
@@ -31,6 +35,23 @@ const (
 
 type BlockchainService interface {
 	blockchain.Convertor
+	PrepareBitcoinTransaction(
+		ctx context.Context,
+		senderAddress string,
+		recipient string,
+		amount money.Money,
+		fee blockchain.Fee,
+		isTest bool,
+	) (blockchain.BitcoinTransactionPlan, error)
+	PrepareBitcoinTransactionExcluding(
+		ctx context.Context,
+		senderAddress string,
+		recipient string,
+		amount money.Money,
+		fee blockchain.Fee,
+		isTest bool,
+		excluded []blockchain.BitcoinUTXOKey,
+	) (blockchain.BitcoinTransactionPlan, error)
 }
 
 type Service struct {
@@ -154,7 +175,7 @@ func (s *Service) EnsureOutboundWallet(ctx context.Context, bc kmswallet.Blockch
 		Type:               repository.StringToNullable(string(TypeOutbound)),
 		FilterByType:       true,
 		FilterByBlockchain: true,
-		Limit:              1,
+		Limit:              100,
 	}
 
 	wallets, err := s.store.PaginateWalletsByID(ctx, params)
@@ -163,8 +184,23 @@ func (s *Service) EnsureOutboundWallet(ctx context.Context, bc kmswallet.Blockch
 		return nil, false, errors.Wrap(err, "unable to list wallets")
 	}
 
-	if len(wallets) == 1 {
-		return entryToWallet(wallets[0]), false, nil
+	skippedUnsupportedAddress := false
+	for i := range wallets {
+		wallet := entryToWallet(wallets[i])
+		if isSupportedAddressForWallet(wallet) {
+			return wallet, false, nil
+		}
+
+		skippedUnsupportedAddress = true
+		s.logger.Warn().
+			Int64("wallet_id", wallet.ID).
+			Str("blockchain", wallet.Blockchain.String()).
+			Str("address", wallet.Address).
+			Msg("skipping wallet with unsupported address format")
+	}
+
+	if skippedUnsupportedAddress {
+		return nil, false, ErrUnsupportedAddressFormat
 	}
 
 	wallet, err := s.Create(ctx, bc, TypeOutbound)
@@ -173,6 +209,15 @@ func (s *Service) EnsureOutboundWallet(ctx context.Context, bc kmswallet.Blockch
 	}
 
 	return wallet, true, nil
+}
+
+func isSupportedAddressForWallet(w *Wallet) bool {
+	switch w.Blockchain {
+	case kmswallet.BTC, kmswallet.LTC:
+		return kmswallet.ValidateAddress(w.Blockchain, w.Address) == nil
+	default:
+		return true
+	}
 }
 
 func (s *Service) GetByID(ctx context.Context, id int64) (*Wallet, error) {

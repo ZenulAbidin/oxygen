@@ -75,6 +75,7 @@ func WithDashboardAPI(
 		merchantGroup.DELETE("", handler.DeleteMerchant)
 
 		merchantGroup.PUT("/webhook", handler.UpdateMerchantWebhook)
+		merchantGroup.PUT("/payment-settings", handler.UpdateMerchantPaymentSettings)
 		merchantGroup.PUT("/supported-method", handler.UpdateMerchantSupportedMethods)
 
 		// Merchant Tokens
@@ -220,12 +221,24 @@ const (
 
 func WithEmbeddedFrontend(dashboardUI, paymentsUI fs.FS) Opt {
 	return func(s *Server) {
+		s.echo.GET("/", func(c echo.Context) error {
+			return c.Redirect(http.StatusTemporaryRedirect, dashboardPrefix+"/")
+		})
+
 		spaRouter(s.echo, dashboardPrefix, dashboardUI)
 		spaRouter(s.echo, paymentsPrefix, paymentsUI)
 	}
 }
 
 func spaRouter(e *echo.Echo, prefix string, files fs.FS) {
+	if assets, err := fs.Sub(files, "assets"); err == nil {
+		e.StaticFS(prefix+"/assets", assets)
+	}
+	if fav, err := fs.Sub(files, "fav"); err == nil {
+		e.StaticFS(prefix+"/fav", fav)
+	}
+	e.FileFS(prefix+"/site.webmanifest", "site.webmanifest", files)
+
 	e.Group(prefix, mw.StaticWithConfig(mw.StaticConfig{
 		Root:       "/",
 		Index:      "index.html",

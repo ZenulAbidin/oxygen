@@ -6,8 +6,13 @@ interface MerchantBase {
 interface Merchant extends MerchantBase {
     id: string;
     settings: string;
+    paymentSettings: PaymentSettings;
     webhookSettings: WebhookSettings;
     supportedPaymentMethods: PaymentMethod[];
+}
+
+interface PaymentSettings {
+    defaultExpirationMinutes: number;
 }
 
 interface WebhookSettings {
@@ -15,10 +20,12 @@ interface WebhookSettings {
     url: string;
 }
 
-const BLOCKCHAIN = ["ETH", "TRON", "MATIC", "BSC"] as const;
+const BLOCKCHAIN = ["BTC", "LTC", "ETH", "TRON", "MATIC", "BSC"] as const;
 type Blockchain = typeof BLOCKCHAIN[number];
 
 const BLOCKCHAIN_TICKER = [
+    "BTC",
+    "LTC",
     "ETH",
     "ETH_USDT",
     "ETH_USDC",
@@ -92,6 +99,8 @@ type CurrencyWithFiat = Currency | BlockchainTicker;
 const CURRENCY_SYMBOL: Record<CurrencyWithFiat, string> = {
     USD: "$",
     EUR: "€",
+    BTC: "",
+    LTC: "",
     ETH: "",
     ETH_USDT: "",
     ETH_USDC: "",
@@ -292,6 +301,7 @@ export type {
     Withdrawal,
     MerchantAddress,
     MerchantAddressParams,
+    PaymentSettings,
     WebhookSettings,
     ServiceFee,
     SupportMessage,

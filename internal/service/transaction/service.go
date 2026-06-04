@@ -406,7 +406,10 @@ func (s *Service) GetByFilter(ctx context.Context, filter Filter) (*Transaction,
 
 func (s *Service) entryToTransaction(tx repository.Transaction) (*Transaction, error) {
 	currency, err := s.blockchain.GetCurrencyByTicker(tx.Currency)
-	if err != nil {
+	switch {
+	case errors.Is(err, blockchain.ErrCurrencyNotFound):
+		currency = s.fallbackCurrency(tx)
+	case err != nil:
 		return nil, errors.Wrapf(err, "unable to get currency %s", tx.Currency)
 	}
 
@@ -434,7 +437,10 @@ func (s *Service) entryToTransaction(tx repository.Transaction) (*Transaction, e
 	var networkFee *money.Money
 	if tx.NetworkFee.Status == pgtype.Present {
 		coin, errCoin := s.blockchain.GetNativeCoin(money.Blockchain(tx.Blockchain))
-		if errCoin != nil {
+		switch {
+		case errors.Is(errCoin, blockchain.ErrCurrencyNotFound):
+			coin = s.fallbackNetworkCurrency(tx, currency)
+		case errCoin != nil:
 			return nil, errors.Wrapf(errCoin, "unable to get native coin for %q", tx.Blockchain)
 		}
 
@@ -491,4 +497,111 @@ func (s *Service) entryToTransaction(tx repository.Transaction) (*Transaction, e
 	}
 
 	return t, nil
+}
+
+func (s *Service) fallbackCurrency(tx repository.Transaction) money.CryptoCurrency {
+	currency := money.CryptoCurrency{
+		Blockchain:     money.Blockchain(tx.Blockchain),
+		BlockchainName: tx.Blockchain,
+		Type:           money.CryptoCurrencyType(tx.CurrencyType),
+		Ticker:         tx.Currency,
+		Name:           tx.Currency,
+		Decimals:       int64(tx.Decimals),
+	}
+
+	if tx.NetworkID.Valid {
+		if tx.IsTest {
+			currency.TestNetworkID = tx.NetworkID.String
+		} else {
+			currency.NetworkID = tx.NetworkID.String
+		}
+	}
+
+	if coin, err := s.blockchain.GetNativeCoin(money.Blockchain(tx.Blockchain)); err == nil {
+		currency.BlockchainName = coin.BlockchainName
+		if currency.NetworkID == "" {
+			currency.NetworkID = coin.NetworkID
+		}
+		if currency.TestNetworkID == "" {
+			currency.TestNetworkID = coin.TestNetworkID
+		}
+	}
+
+	return currency
+}
+
+func (s *Service) fallbackNetworkCurrency(tx repository.Transaction, txCurrency money.CryptoCurrency) money.CryptoCurrency {
+	coin := money.CryptoCurrency{
+		Blockchain:     money.Blockchain(tx.Blockchain),
+		BlockchainName: txCurrency.BlockchainName,
+		Type:           money.Coin,
+		Ticker:         tx.Blockchain,
+		Name:           tx.Blockchain,
+		Decimals:       int64(tx.NetworkDecimals),
+		NetworkID:      txCurrency.NetworkID,
+		TestNetworkID:  txCurrency.TestNetworkID,
+	}
+
+	if tx.NetworkID.Valid {
+		if tx.IsTest {
+			coin.TestNetworkID = tx.NetworkID.String
+		} else {
+			coin.NetworkID = tx.NetworkID.String
+		}
+	}
+
+	if txCurrency.Type == money.Coin && txCurrency.Ticker == tx.Currency {
+		coin.Ticker = txCurrency.Ticker
+		coin.Name = txCurrency.Name
+		if txCurrency.Decimals != 0 {
+			coin.Decimals = txCurrency.Decimals
+		}
+	}
+
+	if coin.BlockchainName == "" {
+		coin.BlockchainName = tx.Blockchain
+	}
+
+	return coin
+}
+
+func (s *Service) networkCurrencyForBalanceUpdate(tx *Transaction) (money.CryptoCurrency, error) {
+	if tx.Currency.Type != money.Token {
+		return tx.Currency, nil
+	}
+
+	coin, err := s.blockchain.GetNativeCoin(tx.Currency.Blockchain)
+	switch {
+	case errors.Is(err, blockchain.ErrCurrencyNotFound):
+		return s.fallbackBalanceUpdateNetworkCurrency(tx), nil
+	case err != nil:
+		return money.CryptoCurrency{}, errors.Wrap(err, "unable to get currency for fees")
+	default:
+		return coin, nil
+	}
+}
+
+func (s *Service) fallbackBalanceUpdateNetworkCurrency(tx *Transaction) money.CryptoCurrency {
+	coin := money.CryptoCurrency{
+		Blockchain:     tx.Currency.Blockchain,
+		BlockchainName: tx.Currency.BlockchainName,
+		Type:           money.Coin,
+		Ticker:         tx.Currency.Blockchain.String(),
+		Name:           tx.Currency.Blockchain.String(),
+		Decimals:       tx.Currency.Decimals,
+		NetworkID:      tx.Currency.NetworkID,
+		TestNetworkID:  tx.Currency.TestNetworkID,
+	}
+
+	if tx.NetworkFee != nil {
+		coin.Ticker = tx.NetworkFee.Ticker()
+		coin.Name = tx.NetworkFee.Ticker()
+		coin.Decimals = tx.NetworkFee.Decimals()
+	}
+
+	if coin.BlockchainName == "" {
+		coin.BlockchainName = tx.Currency.Blockchain.String()
+	}
+
+	return coin
 }

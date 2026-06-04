@@ -206,8 +206,22 @@ type withdrawalOutput struct {
 }
 
 //nolint:gocyclo
-func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) (withdrawalOutput, error) {
-	out := withdrawalOutput{}
+func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) (out withdrawalOutput, err error) {
+	var (
+		currency        money.CryptoCurrency
+		txRaw           string
+		utxoBroadcasted bool
+	)
+
+	defer func() {
+		if err == nil || txRaw == "" || utxoBroadcasted || !isUTXOBlockchain(currency.Blockchain) {
+			return
+		}
+
+		if releaseErr := s.wallets.ReleaseBitcoinTransactionReservations(ctx, params.Wallet.ID, txRaw, out.IsTest); releaseErr != nil {
+			s.logger.Error().Err(releaseErr).Msg("unable to release BTC UTXO reservations")
+		}
+	}()
 
 	// 0. Get currency & baseCurrency (e.g. ETH and ETH_USDT)
 	baseCurrency, err := s.blockchain.GetNativeCoin(params.MerchantBalance.Blockchain())
@@ -215,9 +229,14 @@ func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) 
 		return out, errors.Wrap(err, "unable to get base currency")
 	}
 
-	currency, err := s.blockchain.GetCurrencyByTicker(params.MerchantBalance.Currency)
+	currency, err = s.blockchain.GetCurrencyByTicker(params.MerchantBalance.Currency)
 	if err != nil {
 		return out, errors.Wrap(err, "unable to get currency")
+	}
+
+	if err := blockchain.ValidateTransactionRuntimeBlockchain(currency.Blockchain); err != nil {
+		out.MarkPaymentAsFailed = true
+		return out, errors.Wrapf(err, "withdrawal for %s is not supported by current runtime", currency.Blockchain)
 	}
 
 	isTest := currency.NetworkID != params.MerchantBalance.NetworkID
@@ -255,7 +274,7 @@ func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) 
 		return out, errors.Wrap(err, "unable to calculate network fee")
 	}
 
-	txRaw, err := s.wallets.CreateSignedTransaction(
+	txRaw, err = s.wallets.CreateSignedTransaction(
 		ctx,
 		params.Wallet,
 		params.MerchantAddress.Address,
@@ -330,6 +349,12 @@ func (s *Service) createWithdrawal(ctx context.Context, params withdrawalInput) 
 	}
 
 	out.TransactionHashID = transactionHashID
+	if isUTXOBlockchain(currency.Blockchain) {
+		utxoBroadcasted = true
+		if err := s.wallets.MarkBitcoinTransactionBroadcasted(ctx, params.Wallet.ID, txRaw, transactionHashID, isTest); err != nil {
+			return out, errors.Wrap(err, "unable to mark UTXO reservations as broadcasted")
+		}
+	}
 
 	// 9. Update transaction hash
 	errUpdate := s.transactions.UpdateTransactionHash(ctx, params.Withdrawal.MerchantID, tx.ID, transactionHashID)
@@ -366,7 +391,7 @@ func (s *Service) rollbackWithdrawal(
 	out withdrawalOutput,
 	errOut error,
 ) error {
-	if out.TransactionRaw != "" {
+	if out.TransactionRaw != "" && !isUTXOBlockchain(in.Wallet.Blockchain.ToMoneyBlockchain()) {
 		if err := s.wallets.DecrementPendingTransaction(ctx, in.Wallet.ID, out.IsTest); err != nil {
 			return errors.Wrap(err, "unable to decrement pending transaction")
 		}

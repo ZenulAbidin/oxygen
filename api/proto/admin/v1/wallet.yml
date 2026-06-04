@@ -34,7 +34,7 @@ definitions:
   Blockchain:
     type: string
     description: Supported blockchain
-    enum: [ BTC, ETH, MATIC, TRON ]
+    enum: [ BTC, LTC, ETH, MATIC, BSC, TRON ]
 
   Wallet:
     type: object
@@ -95,7 +95,7 @@ paths:
           description: filter by blockchain
           required: false
           type: string
-          enum: [ BTC, ETH, TRON, MATIC ]
+          enum: [ BTC, LTC, ETH, TRON, MATIC, BSC ]
       responses:
         200:
           description: Wallets

@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OxygenPay Documentation</title>
+    <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+<div class="shell">
+    <aside class="sidebar">
+        <div class="brand">
+            <strong>OxygenPay</strong>
+            <span>Local documentation</span>
+        </div>
+        <nav class="nav" aria-label="Documentation">
+            <a href="#quick-start">Quick Start</a>
+            <a href="#payment-flow">Payment Flow</a>
+            <a href="#currencies">Currencies and Fees</a>
+            <a href="#webhooks">Webhooks</a>
+            <a href="#self-hosting">Self-Hosting</a>
+            <a href="#api-reference">API Reference</a>
+        </nav>
+    </aside>
+
+    <main class="content">
+        <header class="hero">
+            <h1>OxygenPay Documentation</h1>
+            <p>
+                Local docs for the self-hosted crypto payment gateway. This bundle is served from Docker and does
+                not depend on the public docs.o2pay.co host.
+            </p>
+        </header>
+
+        <section class="grid" aria-label="API reference shortcuts">
+            <article class="card">
+                <h3>Merchant API</h3>
+                <p>Create payments, payment links, customers, balances, and withdrawals.</p>
+                <a href="/api/merchant.html">Open Merchant API</a>
+            </article>
+            <article class="card">
+                <h3>Dashboard API</h3>
+                <p>Browser dashboard endpoints for merchants, auth, balances, and settings.</p>
+                <a href="/api/dashboard.html">Open Dashboard API</a>
+            </article>
+            <article class="card">
+                <h3>Payment API</h3>
+                <p>Public payment-page endpoints for customer checkout flows.</p>
+                <a href="/api/payment.html">Open Payment API</a>
+            </article>
+            <article class="card">
+                <h3>Internal APIs</h3>
+                <p>Admin and KMS APIs used by the local all-in-one runtime.</p>
+                <a href="/api/admin.html">Open Admin API</a>
+            </article>
+        </section>
+
+        <section class="section" id="quick-start">
+            <h2>Quick Start</h2>
+            <p>
+                Start the local stack, open the dashboard, create or select a merchant, then create a payment link
+                or payment. Customers pay through the payment UI at the URL returned in the payment object.
+            </p>
+            <pre><code>docker compose -p oxygen-local -f docker-compose.local.yml up -d --build</code></pre>
+            <p>
+                The dashboard runs at <a href="http://localhost:8080/dashboard">http://localhost:8080/dashboard</a>.
+                The local documentation runs at <a href="http://localhost:8081">http://localhost:8081</a>.
+            </p>
+            <p>Demo credentials from <span class="inline-code">docker.env.example</span>:</p>
+            <pre><code>email: your.address@gmail.com
+password: your-password-at-least-8-chars</code></pre>
+            <h3>Create your first payment</h3>
+            <ul>
+                <li>Create an API token in Dashboard, Settings, Developer Section.</li>
+                <li>Configure webhook settings if your backend needs status notifications.</li>
+                <li>Use the Merchant API <span class="inline-code">createPayment</span> operation or create a payment link from the dashboard.</li>
+                <li>Redirect the customer to the returned payment URL.</li>
+            </ul>
+        </section>
+
+        <section class="section" id="payment-flow">
+            <h2>Payment Flow</h2>
+            <ol>
+                <li>The merchant creates a payment manually, through a payment link, or through the Merchant API.</li>
+                <li>The customer opens the payment page and selects a supported payment method.</li>
+                <li>OxygenPay monitors the selected address for an on-chain transaction.</li>
+                <li>Mempool observations can be shown in the UI without changing internal payment state.</li>
+                <li>After the required confirmations, the payment is marked successful and merchant balances are updated.</li>
+                <li>Webhook notifications are sent when the payment changes state.</li>
+            </ol>
+            <h3>Creating a payment through the Merchant API</h3>
+            <pre><code>curl -X POST 'http://localhost:8080/api/merchant/v1/merchant/{merchantId}/payment' \
+  -H 'X-O2PAY-TOKEN: {token}' \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "id": "8263313B-08C8-4855-8FAC-3A4CCBA7EAC2",
+    "currency": "USD",
+    "price": 30,
+    "redirectUrl": "https://my-store.example/success",
+    "description": "Sample Payment"
+  }'</code></pre>
+            <p>
+                Payment IDs are provided by the merchant so repeated requests can remain idempotent. When a customer
+                selects a currency, the payment method lock is time-limited; expired or underpaid payments fail.
+            </p>
+        </section>
+
+        <section class="section" id="currencies">
+            <h2>Currencies and Fees</h2>
+            <p>
+                Payments can be priced in fiat currencies such as USD and EUR. Customers can pay with the supported
+                crypto assets configured in the service.
+            </p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Blockchain</th>
+                        <th>Assets</th>
+                        <th>Mainnet</th>
+                        <th>Testnet</th>
+                        <th>Minimum withdrawal</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <td>Bitcoin</td>
+                        <td>BTC</td>
+                        <td>mainnet</td>
+                        <td>testnet</td>
+                        <td>USD 40</td>
+                    </tr>
+                    <tr>
+                        <td>Litecoin</td>
+                        <td>LTC</td>
+                        <td>mainnet</td>
+                        <td>testnet</td>
+                        <td>USD 40</td>
+                    </tr>
+                    <tr>
+                        <td>Ethereum</td>
+                        <td>ETH, ETH_USDT, ETH_USDC</td>
+                        <td>1</td>
+                        <td>5</td>
+                        <td>USD 40</td>
+                    </tr>
+                    <tr>
+                        <td>Polygon</td>
+                        <td>MATIC, MATIC_USDT, MATIC_USDC</td>
+                        <td>137</td>
+                        <td>80001</td>
+                        <td>USD 10</td>
+                    </tr>
+                    <tr>
+                        <td>BNB Chain</td>
+                        <td>BNB, BSC_USDT, BSC_BUSD</td>
+                        <td>56</td>
+                        <td>97</td>
+                        <td>USD 10</td>
+                    </tr>
+                    <tr>
+                        <td>TRON</td>
+                        <td>TRON, TRON_USDT</td>
+                        <td>mainnet</td>
+                        <td>testnet</td>
+                        <td>USD 10</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>
+                Incoming transaction service fees and withdrawal network fees are applied by the backend. Withdrawal
+                fees depend on the blockchain and current network cost.
+            </p>
+        </section>
+
+        <section class="section" id="webhooks">
+            <h2>Webhooks</h2>
+            <p>
+                Webhooks are sent to the merchant backend when a payment changes state. Configure the URL and secret
+                from Dashboard, Settings, Developer Section.
+            </p>
+            <pre><code>{
+  "id": "59871f43-ec34-4966-8141-eacbcc184192",
+  "status": "success",
+  "customerEmail": "satoshi@example.com",
+  "selectedBlockchain": "ETH",
+  "selectedCurrency": "ETH_USDT",
+  "paymentLinkId": "1c9ecded-27bc-405d-bf66-85d2ad3bb228",
+  "isTest": false
+}</code></pre>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Meaning</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr>
+                        <td>inProgress</td>
+                        <td>A transaction was received but does not yet have the required confirmations.</td>
+                    </tr>
+                    <tr>
+                        <td>success</td>
+                        <td>The transaction is confirmed and the merchant balance has been credited.</td>
+                    </tr>
+                    <tr>
+                        <td>failed</td>
+                        <td>The payment expired, was underpaid, or otherwise failed validation.</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>
+                Signed webhooks include an <span class="inline-code">X-Signature</span> header containing an HMAC
+                signature. Verify it with the configured webhook secret before trusting the payload.
+            </p>
+        </section>
+
+        <section class="section" id="self-hosting">
+            <h2>Self-Hosting</h2>
+            <p>
+                The local compose file runs the all-in-one Oxygen process, Postgres, and this documentation server.
+                The production pattern is the same: run Oxygen with Postgres, a persistent session/KMS path, public
+                payment and webhook base URLs, and provider credentials or direct chain provider URLs as needed.
+            </p>
+            <div class="notice">
+                External provider keys are optional for local startup. BTC and LTC use Blockstream-compatible public
+                explorer defaults unless overridden. EVM payment tracking needs JSON-RPC URLs unless Tatum is
+                configured. TRON support needs a TronGrid API key for production use.
+            </div>
+            <h3>Common environment variables</h3>
+            <pre><code>DB_DATA_SOURCE=host=postgres sslmode=disable dbname=oxygen user=oxygen password=oxygen pool_max_conns=32
+SESSION_FS_PATH=/src/tmp/sessions
+SESSION_SECRET=session-secret
+CORS_ALLOW_ORIGINS=http://localhost:8080
+PROCESSING_WEBHOOK_BASE_PATH=http://localhost:8080
+PROCESSING_PAYMENT_FRONTEND_BASE_PATH=http://localhost:8080
+KMS_DB_DATA_SOURCE=/src/tmp/kms.db
+CHAIN_BITCOIN_MAINNET_EXPLORER_URL=
+CHAIN_BITCOIN_TESTNET_EXPLORER_URL=
+CHAIN_LITECOIN_MAINNET_EXPLORER_URL=
+CHAIN_LITECOIN_TESTNET_EXPLORER_URL=
+CHAIN_ETHEREUM_MAINNET_RPC_URL=
+CHAIN_ETHEREUM_TESTNET_RPC_URL=
+CHAIN_MATIC_MAINNET_RPC_URL=
+CHAIN_MATIC_TESTNET_RPC_URL=
+CHAIN_BSC_MAINNET_RPC_URL=
+CHAIN_BSC_TESTNET_RPC_URL=</code></pre>
+        </section>
+
+        <section class="section" id="api-reference">
+            <h2>API Reference</h2>
+            <p>
+                The API reference pages below are rendered with ReDoc from the checked-in Swagger 2.0 specs.
+                Raw specs are available under <a href="/specs/">/specs/</a> inside the docs container.
+            </p>
+            <div class="grid">
+                <article class="card">
+                    <h3>Merchant API</h3>
+                    <p>Token-authenticated merchant integration API.</p>
+                    <a href="/api/merchant.html">View reference</a>
+                </article>
+                <article class="card">
+                    <h3>Dashboard API</h3>
+                    <p>Session-authenticated dashboard API.</p>
+                    <a href="/api/dashboard.html">View reference</a>
+                </article>
+                <article class="card">
+                    <h3>Payment API</h3>
+                    <p>Public checkout/payment-page API.</p>
+                    <a href="/api/payment.html">View reference</a>
+                </article>
+                <article class="card">
+                    <h3>Admin API</h3>
+                    <p>Internal admin endpoints. Do not expose publicly.</p>
+                    <a href="/api/admin.html">View reference</a>
+                </article>
+                <article class="card">
+                    <h3>KMS API</h3>
+                    <p>Wallet/key-management service API.</p>
+                    <a href="/api/kms.html">View reference</a>
+                </article>
+            </div>
+        </section>
+    </main>
+</div>
+</body>
+</html>

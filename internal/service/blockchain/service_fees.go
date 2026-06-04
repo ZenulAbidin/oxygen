@@ -15,18 +15,19 @@ type FeeCalculator interface {
 	CalculateWithdrawalFeeUSD(ctx context.Context, baseCurrency, currency money.CryptoCurrency, isTest bool) (money.Money, error)
 }
 
-// withdrawalNetworkFeeMultiplier when customer wants to withdraw his assets from the system, we already spent
-// 1x network fee for INBOUND -> OUTBOUND processing. In total o2pay would pay x2 network fee in order to withdraw
-// assets. So it should be kinda fair if customer pays for 0.5x INBOUND -> OUTBOUND & x1 for OUTBOUND -> EXTERNAL.
-const withdrawalNetworkFeeMultiplier = 1.5
-
 // CalculateFee calculates blockchain transaction fee for selected currency.
 func (s *Service) CalculateFee(ctx context.Context, baseCurrency, currency money.CryptoCurrency, isTest bool) (Fee, error) {
 	if baseCurrency.Type != money.Coin || baseCurrency.Blockchain != currency.Blockchain {
-		return Fee{}, errors.New("invalid arguments")
+		return Fee{}, errors.Wrap(ErrValidation, "fee calculation requires a native coin and matching blockchain")
+	}
+
+	if err := validateTransactionRuntimeBlockchain(currency.Blockchain); err != nil {
+		return Fee{}, err
 	}
 
 	switch kmswallet.Blockchain(currency.Blockchain) {
+	case kmswallet.BTC, kmswallet.LTC:
+		return s.bitcoinFee(ctx, baseCurrency, currency, isTest)
 	case kmswallet.ETH:
 		return s.ethFee(ctx, baseCurrency, currency, isTest)
 	case kmswallet.MATIC:
@@ -37,7 +38,7 @@ func (s *Service) CalculateFee(ctx context.Context, baseCurrency, currency money
 		return s.tronFee(ctx, baseCurrency, currency, isTest)
 	}
 
-	return Fee{}, errors.New("unsupported blockchain for fees calculations " + currency.Ticker)
+	return Fee{}, errors.Wrapf(ErrUnsupportedRuntime, "fee calculation for %s is not implemented yet", currency.Blockchain)
 }
 
 // CalculateWithdrawalFeeUSD withdrawal fees are tied to network fee but calculated in USD
@@ -55,6 +56,9 @@ func (s *Service) CalculateWithdrawalFeeUSD(
 	var usdFee money.Money
 
 	switch kmswallet.Blockchain(fee.Currency.Blockchain) {
+	case kmswallet.BTC, kmswallet.LTC:
+		f, _ := fee.ToBitcoinFee()
+		usdFee = f.totalCostUSD
 	case kmswallet.ETH:
 		f, _ := fee.ToEthFee()
 		usdFee = f.totalCostUSD
@@ -77,7 +81,7 @@ func (s *Service) CalculateWithdrawalFeeUSD(
 		return money.FiatFromFloat64(money.USD, 0.01)
 	}
 
-	return usdFee.MultiplyFloat64(withdrawalNetworkFeeMultiplier)
+	return usdFee, nil
 }
 
 type Fee struct {

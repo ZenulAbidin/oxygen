@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"hash/crc32"
+	"sync"
 
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	"github.com/pkg/errors"
@@ -18,15 +19,24 @@ type Key interface {
 
 type Locker struct {
 	store *repository.Store
+	mu    sync.Mutex
+	locks map[int64]*sync.Mutex
 }
 
 func New(store *repository.Store) *Locker {
-	return &Locker{store: store}
+	return &Locker{
+		store: store,
+		locks: make(map[int64]*sync.Mutex),
+	}
 }
 
 // Do acquires exclusive lock for provided resource
 func (l *Locker) Do(ctx context.Context, key Key, run func() error) error {
 	lockID := key.Int64()
+	localLock := l.localLock(lockID)
+
+	localLock.Lock()
+	defer localLock.Unlock()
 
 	return l.store.RunTransaction(ctx, func(ctx context.Context, q repository.Querier) error {
 		// lock will be released automatically after tx commit/rollback
@@ -40,6 +50,19 @@ func (l *Locker) Do(ctx context.Context, key Key, run func() error) error {
 
 		return nil
 	})
+}
+
+func (l *Locker) localLock(lockID int64) *sync.Mutex {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	localLock, ok := l.locks[lockID]
+	if !ok {
+		localLock = &sync.Mutex{}
+		l.locks[lockID] = localLock
+	}
+
+	return localLock
 }
 
 type RowKey struct {

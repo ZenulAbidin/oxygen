@@ -10,6 +10,7 @@ import (
 	kms "github.com/oxygenpay/oxygen/internal/kms/wallet"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/server/http/common"
+	blockchainsvc "github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/service/wallet"
 	admin "github.com/oxygenpay/oxygen/pkg/api-admin/v1/model"
 	"github.com/pkg/errors"
@@ -75,17 +76,28 @@ func (h *Handler) CalculateTransactionFee(c echo.Context) error {
 	}
 
 	currency, err := h.blockchain.GetCurrencyByTicker(req.Currency)
-	if err != nil {
+	switch {
+	case errors.Is(err, blockchainsvc.ErrCurrencyNotFound):
+		return common.ValidationErrorResponse(c, "unsupported currency")
+	case err != nil:
 		return common.ErrorResponse(c, err.Error())
 	}
 
 	baseCurrency, err := h.blockchain.GetNativeCoin(currency.Blockchain)
-	if err != nil {
+	switch {
+	case errors.Is(err, blockchainsvc.ErrCurrencyNotFound):
+		return common.ValidationErrorResponse(c, "unsupported currency")
+	case err != nil:
 		return common.ErrorResponse(c, err.Error())
 	}
 
 	fee, err := h.blockchain.CalculateFee(ctx, baseCurrency, currency, req.IsTest)
-	if err != nil {
+	switch {
+	case errors.Is(err, blockchainsvc.ErrValidation), errors.Is(err, blockchainsvc.ErrUnsupportedRuntime):
+		return common.ValidationErrorResponse(c, err)
+	case errors.Is(err, blockchainsvc.ErrCurrencyNotFound):
+		return common.ValidationErrorResponse(c, "unsupported currency")
+	case err != nil:
 		return common.ErrorResponse(c, err.Error())
 	}
 
@@ -99,6 +111,8 @@ func (h *Handler) CalculateTransactionFee(c echo.Context) error {
 	}
 
 	switch kms.Blockchain(currency.Blockchain) {
+	case kms.BTC, kms.LTC:
+		return response(fee.ToBitcoinFee())
 	case kms.ETH:
 		return response(fee.ToEthFee())
 	case kms.MATIC:
@@ -121,7 +135,10 @@ func (h *Handler) BroadcastTransaction(c echo.Context) error {
 	}
 
 	txHashID, err := h.blockchain.BroadcastTransaction(ctx, money.Blockchain(req.Blockchain), req.Hex, req.IsTest)
-	if err != nil {
+	switch {
+	case errors.Is(err, blockchainsvc.ErrValidation), errors.Is(err, blockchainsvc.ErrUnsupportedRuntime):
+		return common.ValidationErrorResponse(c, err)
+	case err != nil:
 		return c.JSON(http.StatusBadRequest, &admin.ErrorResponse{
 			Message: err.Error(),
 			Status:  "broadcast_error",
@@ -142,7 +159,7 @@ func (h *Handler) GetTransactionReceipt(c echo.Context) error {
 	}
 
 	transactionID := c.QueryParam("txId")
-	if blockchain == "" {
+	if transactionID == "" {
 		return common.ValidationErrorItemResponse(c, "txId", "required")
 	}
 
@@ -156,7 +173,10 @@ func (h *Handler) GetTransactionReceipt(c echo.Context) error {
 	}
 
 	receipt, err := h.blockchain.GetTransactionReceipt(ctx, blockchain, transactionID, isTest)
-	if err != nil {
+	switch {
+	case errors.Is(err, blockchainsvc.ErrValidation), errors.Is(err, blockchainsvc.ErrUnsupportedRuntime):
+		return common.ValidationErrorResponse(c, err)
+	case err != nil:
 		return common.ErrorResponse(c, err.Error())
 	}
 

@@ -197,6 +197,64 @@ definitions:
           Thanks you for purchasing our product! You will receive invitation on your email
         x-nullable: true
         x-omitempty: true
+      observedTransaction:
+        $ref: '#/definitions/ObservedPaymentTransaction'
+
+  ObservedPaymentTransaction:
+    type: object
+    description: Transaction currently observed on-chain or in mempool without mutating payment state
+    required:
+      - transactionHash
+      - amount
+      - amountFormatted
+      - confirmations
+      - requiredConfirmations
+      - isConfirmed
+      - isMempool
+    properties:
+      transactionHash:
+        type: string
+        description: Blockchain transaction hash
+        example: '73dfbf0b657e0a76d439c5cc9a92038c77adbef950a5ae634cc44a958a4b65c3'
+        x-nullable: false
+      senderAddress:
+        type: string
+        description: Sender address when available from the explorer/RPC response
+        example: 'bc1q9pnvzdakvsag0g92kqw4m4ukvpv753ssed6ue5'
+      amount:
+        type: string
+        description: Observed incoming amount in raw units
+        example: '3076'
+        x-nullable: false
+      amountFormatted:
+        type: string
+        description: Human readable observed amount
+        example: '0.00003076'
+        x-nullable: false
+      confirmations:
+        type: integer
+        description: Current confirmation count
+        example: 0
+        x-nullable: false
+      requiredConfirmations:
+        type: integer
+        description: Confirmations required before payment state is updated
+        example: 6
+        x-nullable: false
+      isConfirmed:
+        type: boolean
+        description: Whether this transaction has reached required confirmations
+        example: false
+        x-nullable: false
+      isMempool:
+        type: boolean
+        description: Whether this transaction is known only from the mempool
+        example: true
+        x-nullable: false
+      explorerLink:
+        type: string
+        description: Blockchain explorer link
+        example: 'https://blockstream.info/tx/73dfbf0b657e0a76d439c5cc9a92038c77adbef950a5ae634cc44a958a4b65c3'
 
   CreateCustomerRequest:
     type: object

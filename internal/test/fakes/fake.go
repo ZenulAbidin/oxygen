@@ -13,6 +13,7 @@ type Fakes struct {
 	*Broadcaster
 	*FeeCalculator
 	*ConvertorProxy
+	*Tracker
 	*blockchain.CurrencyResolver
 	*Bus
 }
@@ -23,6 +24,7 @@ func New(t *testing.T, blockchainService *blockchain.Service) *Fakes {
 		Broadcaster:      newBroadcaster(t),
 		FeeCalculator:    newFeeCalculator(t),
 		ConvertorProxy:   newConvertorProxy(blockchainService),
+		Tracker:          newTracker(t),
 		CurrencyResolver: blockchainService.CurrencyResolver,
 		Bus:              &Bus{},
 	}

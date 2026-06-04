@@ -24,6 +24,10 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 <table>
     <tr>
         <td align="center">
+            <img src="./ui-dashboard/src/assets/icons/crypto/btc.svg" height="64" alt="btc">
+            <div>Bitcoin</div>
+        </td>
+        <td align="center">
             <img src="./ui-dashboard/src/assets/icons/crypto/eth.svg" height="64" alt="eth">
             <div>Ethereum</div>
         </td>
@@ -59,7 +63,7 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 - Automatic hot wallets management
 - Built-in KMS (Key Management Service) for securely storing wallet keys
 - Nice and simple merchant dashboard; sleek payment UI
-- Easy integration via [API](https://docs.o2pay.co/specs/merchant/v1/) or [webhooks](https://docs.o2pay.co/webhooks)
+- Easy integration via the local docs service: [API](http://localhost:8081/api/merchant.html) or [webhooks](http://localhost:8081/#webhooks)
 - No need to setup full-nodes
 - Support for testnets
 - It's only 1 binary!
@@ -76,7 +80,9 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 
 - The repo ships `config/oxygen.example.yml` as the base config.
 - Local `make run`, `make run-kms`, and `make run-scheduler` commands will use `config/oxygen.yml` when present and otherwise fall back to `config/oxygen.example.yml`.
-- `docker-compose.local.yml` expects a `docker.env` file; start from `docker.env.example` and replace the placeholder provider credentials.
+- `docker-compose.local.yml` expects a `docker.env` file; start from `docker.env.example`. Provider credentials are optional for local startup.
+- The local compose stack exposes Oxygen at `http://localhost:8080`.
+- The local compose stack also exposes bundled documentation and API specs at `http://localhost:8081`.
 
 ### Validation
 

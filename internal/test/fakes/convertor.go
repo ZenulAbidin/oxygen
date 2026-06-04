@@ -7,13 +7,13 @@ import (
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 )
 
-// ConvertorProxy represents proxy for real implementation of blockchain.Convertor that uses
+// ConvertorProxy represents proxy for real implementation of blockchain service that uses
 // fake tatum http server that can we mocked as well.
 type ConvertorProxy struct {
-	conv blockchain.Convertor
+	conv *blockchain.Service
 }
 
-func newConvertorProxy(conv blockchain.Convertor) *ConvertorProxy {
+func newConvertorProxy(conv *blockchain.Service) *ConvertorProxy {
 	return &ConvertorProxy{conv}
 }
 
@@ -35,4 +35,27 @@ func (c *ConvertorProxy) FiatToCrypto(ctx context.Context, from money.Money, to 
 
 func (c *ConvertorProxy) CryptoToFiat(ctx context.Context, from money.Money, to money.FiatCurrency) (blockchain.Conversion, error) {
 	return c.conv.CryptoToFiat(ctx, from, to)
+}
+
+func (c *ConvertorProxy) PrepareBitcoinTransaction(
+	ctx context.Context,
+	senderAddress string,
+	recipient string,
+	amount money.Money,
+	fee blockchain.Fee,
+	isTest bool,
+) (blockchain.BitcoinTransactionPlan, error) {
+	return c.conv.PrepareBitcoinTransaction(ctx, senderAddress, recipient, amount, fee, isTest)
+}
+
+func (c *ConvertorProxy) PrepareBitcoinTransactionExcluding(
+	ctx context.Context,
+	senderAddress string,
+	recipient string,
+	amount money.Money,
+	fee blockchain.Fee,
+	isTest bool,
+	excluded []blockchain.BitcoinUTXOKey,
+) (blockchain.BitcoinTransactionPlan, error) {
+	return c.conv.PrepareBitcoinTransactionExcluding(ctx, senderAddress, recipient, amount, fee, isTest, excluded)
 }

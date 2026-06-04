@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -260,6 +262,78 @@ type TransactionReceipt struct {
 	Success       bool
 }
 
+type AccountTransaction struct {
+	TxID        string `json:"txID"`
+	BlockNumber int64  `json:"blockNumber"`
+	Ret         []struct {
+		ContractRet string `json:"contractRet"`
+	} `json:"ret"`
+	RawData struct {
+		Contract []struct {
+			Type      string `json:"type"`
+			Parameter struct {
+				Value struct {
+					Amount       int64  `json:"amount"`
+					OwnerAddress string `json:"owner_address"`
+					ToAddress    string `json:"to_address"`
+				} `json:"value"`
+			} `json:"parameter"`
+		} `json:"contract"`
+	} `json:"raw_data"`
+}
+
+type TRC20Transaction struct {
+	TransactionID string `json:"transaction_id"`
+	BlockNumber   int64  `json:"block_number"`
+	From          string `json:"from"`
+	To            string `json:"to"`
+	Value         string `json:"value"`
+	TokenInfo     struct {
+		Address  string `json:"address"`
+		Decimals int64  `json:"decimals"`
+	} `json:"token_info"`
+}
+
+func (p *Provider) ListIncomingTransactions(
+	ctx context.Context,
+	address string,
+	isTest bool,
+) ([]AccountTransaction, error) {
+	var res struct {
+		Data []AccountTransaction `json:"data"`
+	}
+
+	path := fmt.Sprintf("/v1/accounts/%s/transactions?only_to=true&limit=50", url.PathEscape(address))
+	if err := p.getJSON(ctx, path, isTest, &res); err != nil {
+		return nil, err
+	}
+
+	return res.Data, nil
+}
+
+func (p *Provider) ListIncomingTRC20Transactions(
+	ctx context.Context,
+	address string,
+	contractAddress string,
+	isTest bool,
+) ([]TRC20Transaction, error) {
+	var res struct {
+		Data []TRC20Transaction `json:"data"`
+	}
+
+	query := url.Values{}
+	query.Set("only_to", "true")
+	query.Set("limit", "50")
+	query.Set("contract_address", contractAddress)
+
+	path := fmt.Sprintf("/v1/accounts/%s/transactions/trc20?%s", url.PathEscape(address), query.Encode())
+	if err := p.getJSON(ctx, path, isTest, &res); err != nil {
+		return nil, err
+	}
+
+	return res.Data, nil
+}
+
 func (p *Provider) GetTransactionReceipt(
 	ctx context.Context,
 	txID string,
@@ -353,6 +427,41 @@ func (p *Provider) GetTransactionReceipt(
 		IsConfirmed:   confirmations >= confirmationBlocks,
 		Success:       success,
 	}, nil
+}
+
+func (p *Provider) getJSON(ctx context.Context, path string, isTest bool, out any) error {
+	req, err := p.newRequest(ctx, http.MethodGet, path, nil, isTest)
+	if err != nil {
+		return errors.Wrap(err, "unable to create request")
+	}
+
+	res, err := p.client.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "response error")
+	}
+
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return errors.Wrap(err, "unable to read response")
+	}
+
+	p.logger.Info().
+		Str("url", req.URL.String()).
+		RawJSON("response", body).
+		Int("response_code", res.StatusCode).
+		Msg("Trongrid GET response")
+
+	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
+		return errors.Wrapf(ErrResponse, "got %d response code", res.StatusCode)
+	}
+
+	if err := json.Unmarshal(body, out); err != nil {
+		return errors.Wrap(err, "unmarshal error")
+	}
+
+	return nil
 }
 
 //	{

@@ -18,8 +18,8 @@ oxygen:
     payment_frontend_base_path: https://pay.site.com
   auth:
     email:
-      merchant_email: your.address@gmail.com
-      merchant_password: <your-password-at-least-8-chars>
+      user_email: your.address@gmail.com
+      user_password: your-password-at-least-8-chars
 
 kms:
   server:
@@ -28,11 +28,29 @@ kms:
     path: /opt/oxygen/kms.db
 
 providers:
+  chain:
+    bitcoin_mainnet_explorer_url: https://blockstream.info/api
+    bitcoin_mainnet_explorer_fallback_urls:
+      - https://mempool.space/api
+    bitcoin_testnet_explorer_url: https://blockstream.info/testnet/api
+    bitcoin_testnet_explorer_fallback_urls:
+      - https://mempool.space/testnet/api
+    litecoin_mainnet_explorer_url: https://litecoinspace.org/api
+    litecoin_mainnet_explorer_fallback_urls:
+    litecoin_testnet_explorer_url: https://litecoinspace.org/testnet/api
+    litecoin_testnet_explorer_fallback_urls:
+    ethereum_mainnet_rpc_url:
+    ethereum_testnet_rpc_url:
+    matic_mainnet_rpc_url:
+    matic_testnet_rpc_url:
+    bsc_mainnet_rpc_url:
+    bsc_testnet_rpc_url:
+    evm_scan_blocks: 1200
   tatum:
-    api_key: <tatum-api-key>
-    test_api_key: <tatum-test-api-key>
-    tatum_hmac_secret: <replace-with-random-string>
+    api_key:
+    test_api_key:
+    tatum_hmac_secret:
   trongrid:
-    api_key: <trongrid-api-key>
+    api_key:
   kms:
     host: localhost:14000

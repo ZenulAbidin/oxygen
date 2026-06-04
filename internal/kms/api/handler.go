@@ -28,6 +28,7 @@ func SetupRoutes(handler *Handler) httpServer.Opt {
 		kmsAPI.DELETE("/wallet/:walletId", handler.Delete)
 
 		kmsAPI.POST("/wallet/:walletId/transaction/eth", handler.CreateEthereumTransaction)
+		kmsAPI.POST("/wallet/:walletId/transaction/btc", handler.CreateBitcoinTransaction)
 		kmsAPI.POST("/wallet/:walletId/transaction/matic", handler.CreateMaticTransaction)
 		kmsAPI.POST("/wallet/:walletId/transaction/bsc", handler.CreateBSCTransaction)
 		kmsAPI.POST("/wallet/:walletId/transaction/tron", handler.CreateTronTransaction)
@@ -138,6 +139,61 @@ func (h *Handler) CreateEthereumTransaction(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusCreated, &model.EthereumTransaction{RawTransaction: raw})
+}
+
+func (h *Handler) CreateBitcoinTransaction(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	id, err := common.UUID(c, paramWalletID)
+	if err != nil {
+		return err
+	}
+
+	w, err := h.wallets.GetWallet(ctx, id, false)
+
+	switch {
+	case errors.Is(err, wallet.ErrNotFound):
+		return common.NotFoundResponse(c, wallet.ErrNotFound.Error())
+	case err != nil:
+		return err
+	}
+
+	var req model.CreateBitcoinTransactionRequest
+	if valid := common.BindAndValidateRequest(c, &req); !valid {
+		return nil
+	}
+
+	inputs := make([]wallet.BitcoinUTXO, 0, len(req.Inputs))
+	for _, input := range req.Inputs {
+		inputs = append(inputs, wallet.BitcoinUTXO{
+			Hash:       input.Hash,
+			Index:      uint32(input.Index),
+			AmountSats: input.AmountSats,
+			Script:     input.Script,
+			Address:    input.Address,
+		})
+	}
+
+	outputs := make([]wallet.BitcoinOutput, 0, len(req.Outputs))
+	for _, output := range req.Outputs {
+		outputs = append(outputs, wallet.BitcoinOutput{
+			Address:    output.Address,
+			AmountSats: output.AmountSats,
+		})
+	}
+
+	raw, err := h.wallets.CreateBitcoinTransaction(ctx, w, wallet.BitcoinTransactionParams{
+		Inputs:  inputs,
+		Outputs: outputs,
+		IsTest:  req.IsTest,
+		RBF:     req.RBF,
+	})
+
+	if err != nil {
+		return transactionCreationFailed(c, err)
+	}
+
+	return c.JSON(http.StatusCreated, &model.BitcoinTransaction{RawTransaction: raw})
 }
 
 func (h *Handler) CreateMaticTransaction(c echo.Context) error {

@@ -32,6 +32,7 @@ type ContextJobID struct{}
 type ContextJobEnableTableLogger struct{}
 
 type ProcessingService interface {
+	BatchDiscoverIncomingTransactions(ctx context.Context, transactionIDs []int64) error
 	BatchCheckIncomingTransactions(ctx context.Context, transactionIDs []int64) error
 	BatchCreateInternalTransfers(ctx context.Context, balances []*wallet.Balance) (*processing.TransferResult, error)
 	BatchCheckInternalTransfers(ctx context.Context, transactionIDs []int64) error
@@ -66,6 +67,22 @@ func (h *Handler) JobLogger() *log.JobLogger {
 func (h *Handler) CheckIncomingTransactionsProgress(ctx context.Context) error {
 	// it will be definitely enough for first months of usage.
 	const limit = 200
+
+	pendingFilter := transaction.Filter{
+		Types:       []transaction.Type{transaction.TypeIncoming},
+		Statuses:    []transaction.Status{transaction.StatusPending},
+		HashIsEmpty: true,
+	}
+
+	pendingTXs, err := h.transactions.ListByFilter(ctx, pendingFilter, limit)
+	if err != nil {
+		return errors.Wrap(err, "unable to list pending incoming transactions")
+	}
+
+	pendingIDs := util.MapSlice(pendingTXs, func(t *transaction.Transaction) int64 { return t.ID })
+	if err := h.processing.BatchDiscoverIncomingTransactions(ctx, pendingIDs); err != nil {
+		return errors.Wrap(err, "unable to batch discover incoming transactions")
+	}
 
 	filter := transaction.Filter{
 		Types:    []transaction.Type{transaction.TypeIncoming},
@@ -270,7 +287,7 @@ func (h *Handler) EnsureOutboundWallets(ctx context.Context) error {
 	group, ctx := errgroup.WithContext(ctx)
 	group.SetLimit(4)
 
-	for _, bc := range h.blockchains.ListSupportedBlockchains() {
+	for _, bc := range h.blockchains.ListRuntimeSupportedBlockchains() {
 		bc := bc
 		group.Go(func() error {
 			w, justCreated, err := h.processing.EnsureOutboundWallet(ctx, bc)

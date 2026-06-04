@@ -165,6 +165,14 @@ func (r *CurrencyResolver) ListSupportedBlockchains() []money.Blockchain {
 	return blockchains
 }
 
+func (r *CurrencyResolver) ListRuntimeSupportedBlockchains() []money.Blockchain {
+	blockchains := r.ListSupportedBlockchains()
+
+	return util.FilterSlice(blockchains, func(blockchain money.Blockchain) bool {
+		return supportsTransactionRuntime(blockchain)
+	})
+}
+
 func (r *CurrencyResolver) ListBlockchainCurrencies(blockchain money.Blockchain) []money.CryptoCurrency {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -320,6 +328,10 @@ func DefaultSetup(s *CurrencyResolver) error {
 
 func CreatePaymentLink(addr string, currency money.CryptoCurrency, amount money.Money, isTest bool) (string, error) {
 	switch kms.Blockchain(currency.Blockchain) {
+	case kms.BTC:
+		return bitcoinPaymentLink(addr, amount), nil
+	case kms.LTC:
+		return litecoinPaymentLink(addr, amount), nil
 	case kms.ETH, kms.MATIC, kms.BSC:
 		return ethPaymentLink(addr, currency, amount, isTest), nil
 	case kms.TRON:
@@ -350,12 +362,25 @@ func ethPaymentLink(addr string, currency money.CryptoCurrency, amount money.Mon
 	return link
 }
 
+// BIP-21 uses decimal BTC amounts and relies on the address prefix to distinguish networks.
+func bitcoinPaymentLink(addr string, amount money.Money) string {
+	return fmt.Sprintf("bitcoin:%s?amount=%s", addr, amount.String())
+}
+
+func litecoinPaymentLink(addr string, amount money.Money) string {
+	return fmt.Sprintf("litecoin:%s?amount=%s", addr, amount.String())
+}
+
 // Tron has no standards in QR-codes, so in this data we can't really reflect TRC20 case when dealing with tokens.
 func tronPaymentLink(addr string, _ money.CryptoCurrency, amount money.Money, _ bool) string {
 	return fmt.Sprintf("tron:%s?amount=%s", addr, amount.String())
 }
 
 var explorers = map[string]string{
+	"BTC/mainnet":  "https://blockstream.info/tx/%s",
+	"BTC/testnet":  "https://blockstream.info/testnet/tx/%s",
+	"LTC/mainnet":  "https://litecoinspace.org/tx/%s",
+	"LTC/testnet":  "https://litecoinspace.org/testnet/tx/%s",
 	"ETH/1":        "https://etherscan.io/tx/%s",
 	"ETH/5":        "https://goerli.etherscan.io/tx/%s",
 	"MATIC/137":    "https://polygonscan.com/tx/%s",

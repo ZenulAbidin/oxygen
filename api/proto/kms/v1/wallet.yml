@@ -77,6 +77,79 @@ definitions:
 
   CreateBSCTransactionRequest: *createEthTransaction
 
+  BitcoinUTXO:
+    type: object
+    required: [ hash, index, amountSats ]
+    properties:
+      hash:
+        type: string
+        description: Previous transaction hash
+        x-nullable: false
+        x-omitempty: false
+      index:
+        type: integer
+        description: Previous transaction output index
+        minimum: 0
+        maximum: 4294967295
+        x-nullable: false
+        x-omitempty: false
+      amountSats:
+        type: integer
+        description: UTXO amount in satoshis
+        minimum: 1
+        x-nullable: false
+        x-omitempty: false
+      script:
+        type: string
+        description: Previous output script
+      address:
+        type: string
+        description: Previous output owner address
+
+  BitcoinOutput:
+    type: object
+    required: [ address, amountSats ]
+    properties:
+      address:
+        type: string
+        description: Recipient address
+        x-nullable: false
+        x-omitempty: false
+      amountSats:
+        type: integer
+        description: Output amount in satoshis
+        minimum: 1
+        x-nullable: false
+        x-omitempty: false
+
+  CreateBitcoinTransactionRequest:
+    type: object
+    required: [ inputs, outputs ]
+    properties:
+      inputs:
+        type: array
+        items:
+          $ref: '#/definitions/BitcoinUTXO'
+      outputs:
+        type: array
+        items:
+          $ref: '#/definitions/BitcoinOutput'
+      feeSatPerVByte:
+        type: integer
+        description: Fee rate used by the upstream planner
+      isTest:
+        type: boolean
+        description: Mainnet / Testnet selection
+        example: false
+        x-nullable: false
+        x-omitempty: false
+      rbf:
+        type: boolean
+        description: Use opt-in replace-by-fee sequence
+        example: true
+        x-nullable: false
+        x-omitempty: false
+
   CreateTronTransactionRequest:
     type: object
     required: [ assetType, recipient, amount ]
@@ -116,7 +189,7 @@ definitions:
   Blockchain:
     type: string
     description: Supported blockchain
-    enum: [ BTC, ETH, TRON, MATIC, BSC ]
+    enum: [ BTC, LTC, ETH, TRON, MATIC, BSC ]
     x-nullable: false
     x-omitempty: false
 
@@ -162,6 +235,15 @@ definitions:
   MaticTransaction: *ethTransaction
 
   BSCTransaction: *ethTransaction
+
+  BitcoinTransaction:
+    type: object
+    properties:
+      rawTransaction:
+        type: string
+        description: Hex-encoded signed Bitcoin transaction
+        x-nullable: false
+        x-omitempty: false
 
   TronTransaction:
     type: object
@@ -261,6 +343,28 @@ paths:
           description: Transaction Created
           schema:
             $ref: '#/definitions/EthereumTransaction'
+        400:
+          description: Validation error / Not found
+          schema:
+            $ref: '../kms-v1.yml#/definitions/ErrorResponse'
+
+  /wallet/{walletId}/transaction/btc:
+    post:
+      summary: Create Bitcoin Transaction
+      operationId: createBitcoinTransaction
+      tags: [ Wallet ]
+      parameters:
+        - $ref: '#/parameters/WalletId'
+        - in: body
+          name: data
+          required: true
+          schema:
+            $ref: '#/definitions/CreateBitcoinTransactionRequest'
+      responses:
+        201:
+          description: Transaction Created
+          schema:
+            $ref: '#/definitions/BitcoinTransaction'
         400:
           description: Validation error / Not found
           schema:

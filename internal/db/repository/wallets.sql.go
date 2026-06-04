@@ -130,6 +130,11 @@ const getAvailableWallet = `-- name: GetAvailableWallet :one
 SELECT wallets.id, wallets.created_at, wallets.uuid, wallets.address, wallets.blockchain, wallets.tatum_mainnet_subscription_id, wallets.tatum_testnet_subscription_id, wallets.type, wallets.confirmed_mainnet_transactions, wallets.pending_mainnet_transactions, wallets.pending_testnet_transactions, wallets.confirmed_testnet_transactions
 FROM wallets
 WHERE blockchain = $1 and type = $2
+AND (
+    blockchain NOT IN ('BTC', 'LTC')
+    OR (blockchain = 'BTC' AND (lower(address) LIKE 'bc1%' OR lower(address) LIKE 'tb1%'))
+    OR (blockchain = 'LTC' AND (lower(address) LIKE 'ltc1%' OR lower(address) LIKE 'tltc1%'))
+)
 AND NOT EXISTS(
     select id from wallet_locks
     where wallet_id = wallets.id and currency = $3 and network_id = $4

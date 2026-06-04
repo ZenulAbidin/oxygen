@@ -17,6 +17,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSetPaymentMethodCreatesSingleUsePaymentAddresses(t *testing.T) {
+	tc := test.NewIntegrationTest(t)
+
+	mt, _ := tc.Must.CreateMerchant(t, 1)
+	var recipientAddresses []string
+	var recipientWalletIDs []int64
+
+	for _, ticker := range []string{"ETH", "BTC", "TRON_USDT"} {
+		currency := tc.Must.GetCurrency(t, ticker)
+		tc.Providers.TatumMock.SetupRates(ticker, money.USD, 1)
+
+		for i := 1; i <= 2; i++ {
+			address := fmt.Sprintf("single-use-%s-%d", ticker, i)
+			tc.SetupCreateWalletWithSubscription(currency.Blockchain.String(), address, fmt.Sprintf("%s-pub-key-%d", ticker, i))
+		}
+
+		p1 := tc.CreatePayment(t, mt.ID, money.USD, 10)
+		p2 := tc.CreatePayment(t, mt.ID, money.USD, 10)
+
+		method1, err := tc.Services.Processing.SetPaymentMethod(tc.Context, p1, ticker)
+		require.NoError(t, err)
+		method2, err := tc.Services.Processing.SetPaymentMethod(tc.Context, p2, ticker)
+		require.NoError(t, err)
+
+		tx1 := method1.TX()
+		tx2 := method2.TX()
+		require.NotNil(t, tx1.RecipientWalletID)
+		require.NotNil(t, tx2.RecipientWalletID)
+
+		assert.NotEqual(t, tx1.RecipientAddress, tx2.RecipientAddress)
+		assert.NotEqual(t, *tx1.RecipientWalletID, *tx2.RecipientWalletID)
+
+		recipientAddresses = append(recipientAddresses, tx1.RecipientAddress, tx2.RecipientAddress)
+		recipientWalletIDs = append(recipientWalletIDs, *tx1.RecipientWalletID, *tx2.RecipientWalletID)
+	}
+
+	assert.Len(t, lo.Uniq(recipientAddresses), len(recipientAddresses), recipientAddresses)
+	assert.Len(t, lo.Uniq(recipientWalletIDs), len(recipientWalletIDs), recipientWalletIDs)
+	tc.AssertTableRows(t, "wallets", int64(len(recipientWalletIDs)))
+	tc.AssertTableRowsByMerchant(t, mt.ID, "wallet_locks", int64(len(recipientWalletIDs)))
+}
+
 // TestSetPaymentMethod for that assertion-intensive test we need separate test context
 //
 //nolint:funlen
@@ -109,7 +151,7 @@ func TestSetPaymentMethod(t *testing.T) {
 				expectedServiceFee:  "532_499",
 				expectedCryptoPrice: "35_500_000",
 				setupMocks: func(ticker, blockchain string) {
-					// no new wallet creation
+					tc.SetupCreateWalletWithSubscription(blockchain, test.RandomAddress, "eth-usdt-pub-key-goes-here")
 				},
 			},
 			{
@@ -133,7 +175,7 @@ func TestSetPaymentMethod(t *testing.T) {
 				// $35.50 * 1  = 35.50
 				expectedCryptoPrice: "35_500_000_000_000_000_000",
 				setupMocks: func(ticker, blockchain string) {
-					// no new wallet creation
+					tc.SetupCreateWalletWithSubscription(blockchain, test.RandomAddress, "eth-second-pub-key-goes-here")
 					tc.Providers.TatumMock.SetupRates(ticker, money.USD, 1)
 				},
 				assertTransactions: func(t *testing.T, ids []int64) {
@@ -156,12 +198,9 @@ func TestSetPaymentMethod(t *testing.T) {
 					tc.AssertTableRowsByMerchant(t, merchantID, "transactions", 4)
 				},
 				assertWallets: func(t *testing.T, ids []int64) {
-					// Important!
-					// first, second, and fourth wallets should be the same wallet.
-					assert.Equal(t, ids[0], ids[1], ids)
-					assert.Equal(t, ids[0], ids[3], ids)
+					assert.Len(t, lo.Uniq(ids), len(ids), ids)
 
-					tc.AssertTableRows(t, "wallets", 2)
+					tc.AssertTableRows(t, "wallets", 4)
 					tc.AssertTableRowsByMerchant(t, merchantID, "wallet_locks", 1)
 				},
 			},
@@ -171,7 +210,7 @@ func TestSetPaymentMethod(t *testing.T) {
 				expectedServiceFee:  "2_699_999",
 				expectedCryptoPrice: "180_000_000",
 				setupMocks: func(ticker, blockchain string) {
-					// no new wallet creation
+					tc.SetupCreateWalletWithSubscription(blockchain, test.RandomAddress, "p2-eth-usdt-pub-key-goes-here")
 				},
 			},
 			{
@@ -181,17 +220,17 @@ func TestSetPaymentMethod(t *testing.T) {
 				expectedServiceFee:  "2_699_999_999_999_999_900",
 				expectedCryptoPrice: "180_000_000_000_000_000_000",
 				setupMocks: func(ticker, blockchain string) {
-					// no new wallet creation
+					tc.SetupCreateWalletWithSubscription(blockchain, test.RandomAddress, "p2-matic-pub-key-goes-here")
 					tc.Providers.TatumMock.SetupRates(ticker, money.EUR, 1)
 					tc.Providers.TatumMock.SetupRates(money.USD.String(), money.EUR, 1)
 				},
 				assertWallets: func(t *testing.T, ids []int64) {
-					tc.AssertTableRows(t, "wallets", 2)
+					assert.Len(t, lo.Uniq(ids), len(ids), ids)
+					tc.AssertTableRows(t, "wallets", 6)
 					tc.AssertTableRowsByMerchant(t, merchantID, "wallet_locks", 2)
 				},
 			},
-			// Check that .IsTest behaves as expected. As we use test network for ETH,
-			// we have one free wallet for that -> no wallet creation needed.
+			// Check that .IsTest behaves as expected.
 			{
 				payment: p3,
 				ticker:  "ETH",
@@ -200,14 +239,11 @@ func TestSetPaymentMethod(t *testing.T) {
 				// $35.50 * 1  = 35.50
 				expectedCryptoPrice: "35_500_000_000_000_000_000",
 				setupMocks: func(ticker, blockchain string) {
-					// no new wallet creation
-					tc.Providers.TatumMock.SetupSubscription(blockchain, ethAddress, false, ethMainnetSubID)
-					tc.Providers.TatumMock.SetupSubscription(blockchain, ethAddress, true, ethTestnetSubID)
+					tc.SetupCreateWalletWithSubscription(blockchain, test.RandomAddress, "p3-eth-pub-key-goes-here")
 				},
-				// So, at the end we should have 2 wallets: ETH and MATIC.
-				// ETH wallet should be subscribed to both mainnet and testnet,
-				// while MATIC - to both as well because we should always subscribe to mainnet&testnet
 				assertWallets: func(t *testing.T, ids []int64) {
+					assert.Len(t, lo.Uniq(ids), len(ids), ids)
+
 					ethWallet, err := tc.Services.Wallet.GetByID(tc.Context, ids[0])
 					require.NoError(t, err)
 					assert.Equal(t, kms.ETH, ethWallet.Blockchain)
@@ -219,6 +255,15 @@ func TestSetPaymentMethod(t *testing.T) {
 					assert.Equal(t, kms.MATIC, maticWallet.Blockchain)
 					assert.Equal(t, maticMainnetSubID, maticWallet.TatumSubscription.MainnetSubscriptionID)
 					assert.Equal(t, maticTestnetSubID, maticWallet.TatumSubscription.TestnetSubscriptionID)
+
+					testnetEthWallet, err := tc.Services.Wallet.GetByID(tc.Context, ids[6])
+					require.NoError(t, err)
+					assert.Equal(t, kms.ETH, testnetEthWallet.Blockchain)
+					assert.NotEmpty(t, testnetEthWallet.TatumSubscription.MainnetSubscriptionID)
+					assert.NotEmpty(t, testnetEthWallet.TatumSubscription.TestnetSubscriptionID)
+
+					tc.AssertTableRows(t, "wallets", 7)
+					tc.AssertTableRowsByMerchant(t, merchantID, "wallet_locks", 3)
 				},
 			},
 		} {
@@ -343,22 +388,26 @@ func TestSetPaymentMethod(t *testing.T) {
 			assert.NoError(t, err)
 
 			statuses := map[transaction.Status]int{}
+			walletIDsByTX := make([]int64, 0, len(txs))
 			for _, tx := range txs {
 				statuses[tx.Status]++
 
 				assert.Equal(t, mt.ID, tx.MerchantID)
 				assert.Equal(t, transaction.TypeIncoming, tx.Type)
+				require.NotNil(t, tx.RecipientWalletID)
+				walletIDsByTX = append(walletIDsByTX, *tx.RecipientWalletID)
 			}
 
 			// Only one tx should be pending and all others should be canceled
 			assert.Equal(t, 1, statuses[transaction.StatusPending])
 			assert.Equal(t, len(txs)-1, statuses[transaction.StatusCancelled])
+			assert.Len(t, lo.Uniq(walletIDsByTX), len(walletIDsByTX), walletIDsByTX)
 
 			// Wallet locks should contain only 1 lock
 			tc.AssertTableRows(t, "wallet_locks", 1)
 
-			// Wallets table should only have 3 wallets: ETH, TRON, MATIC
-			tc.AssertTableRows(t, "wallets", 3)
+			// Payment collection addresses are single-use, so every created tx has its own wallet.
+			tc.AssertTableRows(t, "wallets", int64(len(txs)))
 		})
 	})
 }

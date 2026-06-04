@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	kms "github.com/oxygenpay/oxygen/internal/kms/wallet"
 	"github.com/oxygenpay/oxygen/internal/money"
@@ -48,6 +50,8 @@ const (
 
 	registryHMACEnabledMainnet = "tatum.hmac_enabled.mainnet"
 	registryHMACEnabledTestnet = "tatum.hmac_enabled.testnet"
+
+	localSubscriptionIDMaxLength = 32
 )
 
 func New(config Config, registryService *registry.Service, logger *zerolog.Logger) *Provider {
@@ -90,6 +94,22 @@ func (p *Provider) Test() *tatum.APIClient {
 	return p.testClient
 }
 
+func (p *Provider) HasMainAPIKey() bool {
+	return isUsableAPIKey(p.config.APIKey)
+}
+
+func (p *Provider) HasTestAPIKey() bool {
+	return isUsableAPIKey(p.config.TestAPIKey)
+}
+
+func (p *Provider) HasAPIKey(isTest bool) bool {
+	if isTest {
+		return p.HasTestAPIKey()
+	}
+
+	return p.HasMainAPIKey()
+}
+
 type SubscriptionParams struct {
 	Blockchain money.Blockchain
 	Address    string
@@ -114,6 +134,27 @@ func (p *Provider) SubscribeToWebhook(ctx context.Context, params SubscriptionPa
 		}
 	}
 
+	if !isUsableAPIKey(token) {
+		p.logger.Warn().
+			Str("wallet_address", params.Address).
+			Str("blockchain", params.Blockchain.String()).
+			Bool("is_test", params.IsTest).
+			Msg("skipping Tatum subscription because API key is not configured")
+
+		return disabledSubscriptionID(params), nil
+	}
+
+	if isLocalWebhookURL(params.WebhookURL) && !isLocalWebhookURL(p.config.BasePath) {
+		p.logger.Warn().
+			Str("wallet_address", params.Address).
+			Str("blockchain", params.Blockchain.String()).
+			Bool("is_test", params.IsTest).
+			Str("webhook_url", params.WebhookURL).
+			Msg("skipping Tatum subscription because webhook URL is local")
+
+		return disabledSubscriptionID(params), nil
+	}
+
 	reqBody, err := json.Marshal(tatum.CreateSubscriptionNotification{
 		Type_: subscriptionTypeAddressTX,
 		Attr: &tatum.CreateSubscriptionNotificationAttr{
@@ -133,7 +174,7 @@ func (p *Provider) SubscribeToWebhook(ctx context.Context, params SubscriptionPa
 	}
 
 	req.Header.Set(TokenHeader, token)
-	req.Header.Set("User-Agent", token)
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -191,6 +232,11 @@ func (p *Provider) ValidateHMAC(body []byte, hash string) bool {
 }
 
 func (p *Provider) ensureHMAC(secret string, isForce bool) {
+	if !isUsableHMACSecret(secret) {
+		p.logger.Warn().Msg("skipping HMAC setup because HMAC secret is not configured")
+		return
+	}
+
 	ctx := context.Background()
 
 	if err := p.enableSubscriptionSignature(ctx, secret, false, isForce); err != nil {
@@ -208,6 +254,11 @@ func (p *Provider) enableSubscriptionSignature(ctx context.Context, secret strin
 	if isTest {
 		client = p.Test()
 		registryKey = registryHMACEnabledTestnet
+	}
+
+	if !p.HasAPIKey(isTest) {
+		p.logger.Warn().Bool("is_test", isTest).Msg("skipping HMAC setup because Tatum API key is not configured")
+		return nil
 	}
 
 	// 1. get registry key
@@ -239,4 +290,69 @@ func (p *Provider) enableSubscriptionSignature(ctx context.Context, secret strin
 	p.logger.Info().Str(registryKey, enabled.Value).Msg("successfully set HMAC secret")
 
 	return nil
+}
+
+func isUsableAPIKey(token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return false
+	}
+
+	lowered := strings.ToLower(token)
+
+	if strings.Contains(token, "<") || strings.Contains(token, ">") {
+		return false
+	}
+
+	return !strings.Contains(lowered, "tatum-api-key") &&
+		!strings.Contains(lowered, "tatum-test-api-key")
+}
+
+func isUsableHMACSecret(secret string) bool {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return false
+	}
+
+	lowered := strings.ToLower(secret)
+	return !strings.Contains(secret, "<") &&
+		!strings.Contains(secret, ">") &&
+		!strings.Contains(lowered, "replace-with")
+}
+
+func isLocalWebhookURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(parsed.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
+}
+
+func disabledSubscriptionID(params SubscriptionParams) string {
+	network := "main"
+	if params.IsTest {
+		network = "test"
+	}
+
+	address := strings.ToLower(strings.TrimSpace(params.Address))
+	if len(address) > 8 {
+		address = address[:8]
+	}
+
+	if address == "" {
+		address = "unknown"
+	}
+
+	id := fmt.Sprintf("disabled-%s-%s-%s", strings.ToLower(params.Blockchain.String()), network, address)
+	if len(id) > localSubscriptionIDMaxLength {
+		return id[:localSubscriptionIDMaxLength]
+	}
+
+	return id
 }

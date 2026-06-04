@@ -46,6 +46,9 @@ type PaymentInfo struct {
 	// Required: true
 	PaymentLink string `json:"paymentLink"`
 
+	// Transaction currently observed on-chain or in mempool without mutating payment state
+	ObservedTransaction *ObservedPaymentTransaction `json:"observedTransaction,omitempty"`
+
 	// recipient address
 	// Example: 0xbca4a8417e823484b21d2f4f1f1324d951236a49
 	// Required: true
@@ -94,6 +97,10 @@ func (m *PaymentInfo) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validatePaymentLink(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateObservedTransaction(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -159,6 +166,23 @@ func (m *PaymentInfo) validatePaymentLink(formats strfmt.Registry) error {
 
 	if err := validate.RequiredString("paymentLink", "body", m.PaymentLink); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *PaymentInfo) validateObservedTransaction(formats strfmt.Registry) error {
+	if swag.IsZero(m.ObservedTransaction) { // not required
+		return nil
+	}
+
+	if m.ObservedTransaction != nil {
+		if err := m.ObservedTransaction.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("observedTransaction")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -263,6 +287,15 @@ func (m *PaymentInfo) validateSuccessAction(formats strfmt.Registry) error {
 
 // ContextValidate validates this payment info based on context it is used
 func (m *PaymentInfo) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	if m.ObservedTransaction != nil {
+		if err := m.ObservedTransaction.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("observedTransaction")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

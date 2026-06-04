@@ -3,6 +3,7 @@ import {Button, Row, Space, Typography} from "antd";
 import {CopyOutlined, CodeOutlined} from "@ant-design/icons";
 import useSharedMerchantId from "src/hooks/use-merchant-id";
 import copyToClipboard from "src/utils/copy-to-clipboard";
+import documentationURLs from "src/utils/documentation";
 
 interface Props {
     openPopupFunc: (title: string, desc: string) => void;
@@ -28,7 +29,7 @@ const DevelopersSection: React.FC<Props> = (props: Props) => {
                 </Space>
 
                 <Space style={{marginLeft: "10px"}}>
-                    <Button href={"https://docs.o2pay.co/specs/merchant/v1/"} target={"_blank"} icon={<CodeOutlined />}>
+                    <Button href={documentationURLs.merchantAPI} target={"_blank"} icon={<CodeOutlined />}>
                         API Reference
                     </Button>
                 </Space>

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	kms "github.com/oxygenpay/oxygen/internal/kms/wallet"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/service/payment"
@@ -36,7 +37,7 @@ func (i Input) validate() error {
 		return errors.Wrap(ErrInvalidInput, "missing amount")
 	}
 
-	if i.SenderAddress == "" {
+	if i.SenderAddress == "" && !allowsEmptySenderAddress(i.Currency.Blockchain) {
 		return errors.Wrap(ErrInvalidInput, "missing SenderAddress")
 	}
 
@@ -49,6 +50,10 @@ func (i Input) validate() error {
 	}
 
 	return nil
+}
+
+func allowsEmptySenderAddress(blockchain money.Blockchain) bool {
+	return kms.Blockchain(blockchain) == kms.BTC
 }
 
 // ProcessInboundTransaction implements correct business logic for transaction processing
@@ -221,6 +226,169 @@ func (s *Service) BatchCheckIncomingTransactions(ctx context.Context, transactio
 	return err
 }
 
+func (s *Service) BatchDiscoverIncomingTransactions(ctx context.Context, transactionIDs []int64) error {
+	var (
+		group     errgroup.Group
+		checked   int64
+		failedTXs []int64
+		mu        sync.Mutex
+	)
+
+	group.SetLimit(8)
+
+	for i := range transactionIDs {
+		txID := transactionIDs[i]
+		group.Go(func() error {
+			if err := s.discoverIncomingTransaction(ctx, txID); err != nil {
+				mu.Lock()
+				failedTXs = append(failedTXs, txID)
+				mu.Unlock()
+
+				return err
+			}
+
+			atomic.AddInt64(&checked, 1)
+
+			return nil
+		})
+	}
+
+	err := group.Wait()
+
+	evt := s.logger.Info()
+	if err != nil {
+		evt = s.logger.Error().Err(err)
+	}
+
+	evt.Int64("checked_transactions_count", checked).
+		Ints64("transaction_ids", transactionIDs).
+		Ints64("failed_transaction_ids", failedTXs).
+		Msg("Discovered incoming transactions")
+
+	return err
+}
+
+func (s *Service) discoverIncomingTransaction(ctx context.Context, txID int64) error {
+	tx, err := s.transactions.GetByID(ctx, transaction.MerchantIDWildcard, txID)
+	if err != nil {
+		return errors.Wrap(err, "unable to get transaction")
+	}
+
+	switch {
+	case tx.Type != transaction.TypeIncoming:
+		return errors.New("invalid transaction type")
+	case tx.Status != transaction.StatusPending:
+		return nil
+	case tx.HashID != nil:
+		return nil
+	case tx.RecipientWalletID == nil:
+		return errors.New("empty recipient wallet id")
+	}
+
+	wt, err := s.wallets.GetByID(ctx, *tx.RecipientWalletID)
+	if err != nil {
+		return errors.Wrap(err, "unable to get recipient wallet")
+	}
+
+	incoming, err := s.blockchain.ListIncomingTransactions(ctx, tx.RecipientAddress, tx.Currency, tx.IsTest)
+	if err != nil {
+		return errors.Wrap(err, "unable to list incoming blockchain transactions")
+	}
+
+	for _, candidate := range incoming {
+		processed, err := s.processDiscoveredIncomingCandidate(ctx, tx, wt, candidate)
+		if err != nil {
+			return err
+		}
+		if processed {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (s *Service) processDiscoveredIncomingCandidate(
+	ctx context.Context,
+	tx *transaction.Transaction,
+	wt *wallet.Wallet,
+	candidate blockchain.IncomingTransaction,
+) (bool, error) {
+	ok, err := s.canUseObservedCandidate(ctx, tx, candidate)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+
+	receipt, err := s.blockchain.GetTransactionReceipt(ctx, tx.Currency.Blockchain, candidate.TransactionID, tx.IsTest)
+	if err != nil {
+		return false, errors.Wrap(err, "unable to get transaction receipt")
+	}
+
+	if !receipt.IsConfirmed {
+		s.logger.Info().
+			Int64("transaction_id", tx.ID).
+			Str("blockchain_tx_hash_id", candidate.TransactionID).
+			Int64("confirmations", receipt.Confirmations).
+			Msg("discovered incoming transaction is not confirmed yet")
+
+		return false, nil
+	}
+
+	input := Input{
+		Currency:      candidate.Currency,
+		Amount:        candidate.Amount,
+		SenderAddress: candidate.SenderAddress,
+		TransactionID: candidate.TransactionID,
+		NetworkID:     candidate.NetworkID,
+	}
+
+	if err := s.processConfirmedInboundTransaction(ctx, tx, wt, input, receipt); err != nil {
+		return false, err
+	}
+
+	s.logger.Info().
+		Int64("transaction_id", tx.ID).
+		Str("blockchain_tx_hash_id", candidate.TransactionID).
+		Str("currency", candidate.Currency.Ticker).
+		Msg("processed discovered incoming transaction")
+
+	return true, nil
+}
+
+func (s *Service) processConfirmedInboundTransaction(
+	ctx context.Context,
+	tx *transaction.Transaction,
+	wt *wallet.Wallet,
+	input Input,
+	receipt *blockchain.TransactionReceipt,
+) error {
+	if err := s.ProcessInboundTransaction(ctx, tx, wt, input); err != nil {
+		return errors.Wrap(err, "unable to process incoming transaction")
+	}
+
+	tx, err := s.transactions.GetByID(ctx, transaction.MerchantIDWildcard, tx.ID)
+	if err != nil {
+		return errors.Wrap(err, "unable to reload incoming transaction")
+	}
+
+	if !receipt.Success {
+		if err := s.cancelIncomingTransaction(ctx, tx); err != nil {
+			return errors.Wrap(err, "unable to cancel incoming transaction")
+		}
+
+		return nil
+	}
+
+	if err := s.confirmIncomingTransaction(ctx, tx, receipt); err != nil {
+		return errors.Wrap(err, "unable to confirm incoming transaction")
+	}
+
+	return nil
+}
+
 func (s *Service) checkIncomingTransaction(ctx context.Context, txID int64) error {
 	tx, err := s.transactions.GetByID(ctx, transaction.MerchantIDWildcard, txID)
 	if err != nil {
@@ -232,7 +400,7 @@ func (s *Service) checkIncomingTransaction(ctx context.Context, txID int64) erro
 		return errors.New("invalid transaction type")
 	case tx.HashID == nil:
 		return errors.New("empty transaction hash")
-	case tx.SenderAddress == nil:
+	case tx.SenderAddress == nil && !allowsEmptySenderAddress(tx.Currency.Blockchain):
 		return errors.New("empty sender address")
 	case tx.RecipientWalletID == nil:
 		return errors.New("empty recipient wallet id")
@@ -272,9 +440,17 @@ func (s *Service) confirmIncomingTransaction(
 		setPaymentStatus = payment.StatusFailed
 	}
 
+	senderAddress := receipt.Sender
+	if senderAddress == "" && tx.SenderAddress != nil {
+		senderAddress = *tx.SenderAddress
+	}
+	if senderAddress == "" && !allowsEmptySenderAddress(tx.Currency.Blockchain) {
+		return errors.New("empty sender address")
+	}
+
 	confirmation := transaction.ConfirmTransaction{
 		Status:          setTXStatus,
-		SenderAddress:   *tx.SenderAddress,
+		SenderAddress:   senderAddress,
 		TransactionHash: *tx.HashID,
 		FactAmount:      *tx.FactAmount,
 		NetworkFee:      receipt.NetworkFee,
@@ -363,7 +539,8 @@ func (s *Service) BatchExpirePayments(ctx context.Context, paymentsIDs []int64) 
 	for i := range paymentsIDs {
 		paymentID := paymentsIDs[i]
 		group.Go(func() error {
-			if err := s.expirePayment(ctx, paymentID); err != nil {
+			expired, err := s.expirePayment(ctx, paymentID)
+			if err != nil {
 				mu.Lock()
 				failedIDs = append(failedIDs, paymentID)
 				mu.Unlock()
@@ -371,7 +548,9 @@ func (s *Service) BatchExpirePayments(ctx context.Context, paymentsIDs []int64) 
 				return err
 			}
 
-			atomic.AddInt64(&expiredCount, 1)
+			if expired {
+				atomic.AddInt64(&expiredCount, 1)
+			}
 
 			return nil
 		})
@@ -392,18 +571,18 @@ func (s *Service) BatchExpirePayments(ctx context.Context, paymentsIDs []int64) 
 	return err
 }
 
-func (s *Service) expirePayment(ctx context.Context, paymentID int64) error {
+func (s *Service) expirePayment(ctx context.Context, paymentID int64) (bool, error) {
 	pt, err := s.payments.GetByID(ctx, payment.MerchantIDWildcard, paymentID)
 	if err != nil {
-		return errors.Wrap(err, "unable to get payment")
+		return false, errors.Wrap(err, "unable to get payment")
 	}
 
 	if pt.Type != payment.TypePayment {
-		return errors.Errorf("invalid payment type %q", pt.Type)
+		return false, errors.Errorf("invalid payment type %q", pt.Type)
 	}
 
 	if pt.Status != payment.StatusPending && pt.Status != payment.StatusLocked {
-		return errors.Errorf("invalid payment status %q", pt.Status)
+		return false, errors.Errorf("invalid payment status %q", pt.Status)
 	}
 
 	// 1. Cancel if tx exists
@@ -412,20 +591,48 @@ func (s *Service) expirePayment(ctx context.Context, paymentID int64) error {
 	case errors.Is(err, transaction.ErrNotFound):
 		// that's expected, do nothing
 	case err != nil:
-		return errors.Wrap(err, "unable to get transaction")
+		return false, errors.Wrap(err, "unable to get transaction")
+	}
+
+	if deferExpiry, err := s.shouldDeferPaymentExpiry(ctx, tx); err != nil {
+		return false, err
+	} else if deferExpiry {
+		s.logger.Info().
+			Int64("payment_id", pt.ID).
+			Int64("transaction_id", tx.ID).
+			Msg("deferred payment expiration because an incoming transaction is observed")
+
+		return false, nil
 	}
 
 	if tx != nil && tx.Status != transaction.StatusCancelled {
 		errCancel := s.transactions.Cancel(ctx, tx, transaction.StatusCancelled, "payment expired", nil)
 		if errCancel != nil {
-			return errors.Wrap(err, "unable to cancel transaction")
+			return false, errors.Wrap(errCancel, "unable to cancel transaction")
 		}
 	}
 
 	// 2. Cancel payment itself
 	if errFail := s.payments.Fail(ctx, pt); errFail != nil {
-		return errors.Wrap(errFail, "unable to expire payment")
+		return false, errors.Wrap(errFail, "unable to expire payment")
 	}
 
-	return nil
+	return true, nil
+}
+
+func (s *Service) shouldDeferPaymentExpiry(ctx context.Context, tx *transaction.Transaction) (bool, error) {
+	if tx == nil || tx.Type != transaction.TypeIncoming || tx.IsFinalized() {
+		return false, nil
+	}
+
+	if tx.HashID != nil || tx.IsInProgress() {
+		return true, nil
+	}
+
+	observed, err := s.ObserveIncomingTransaction(ctx, tx)
+	if err != nil {
+		return false, errors.Wrap(err, "unable to observe incoming transaction before payment expiration")
+	}
+
+	return observed != nil, nil
 }

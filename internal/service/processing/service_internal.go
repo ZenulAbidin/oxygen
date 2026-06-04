@@ -226,8 +226,22 @@ func (s *Service) createInternalTransfer(
 	ctx context.Context,
 	sender *wallet.Wallet,
 	params internalTransferInput,
-) (internalTransferOutput, error) {
-	out := internalTransferOutput{}
+) (out internalTransferOutput, err error) {
+	var (
+		currency        money.CryptoCurrency
+		txRaw           string
+		utxoBroadcasted bool
+	)
+
+	defer func() {
+		if err == nil || txRaw == "" || utxoBroadcasted || !isUTXOBlockchain(currency.Blockchain) {
+			return
+		}
+
+		if releaseErr := s.wallets.ReleaseBitcoinTransactionReservations(ctx, sender.ID, txRaw, out.IsTest); releaseErr != nil {
+			s.logger.Error().Err(releaseErr).Msg("unable to release BTC UTXO reservations")
+		}
+	}()
 
 	// 0. Get currency & baseCurrency (e.g. ETH and ETH_USDT)
 	baseCurrency, err := s.blockchain.GetNativeCoin(sender.Blockchain.ToMoneyBlockchain())
@@ -236,9 +250,13 @@ func (s *Service) createInternalTransfer(
 	}
 
 	// e.g. ETH / ETH_USDT
-	currency, err := s.blockchain.GetCurrencyByTicker(params.Amount.Ticker())
+	currency, err = s.blockchain.GetCurrencyByTicker(params.Amount.Ticker())
 	if err != nil {
 		return out, errors.Wrap(err, "unable to get currency")
+	}
+
+	if err := blockchain.ValidateTransactionRuntimeBlockchain(currency.Blockchain); err != nil {
+		return out, errors.Wrapf(err, "internal transfer for %s is not supported by current runtime", currency.Blockchain)
 	}
 
 	isTest := currency.TestNetworkID == params.SenderBalance.NetworkID
@@ -250,7 +268,7 @@ func (s *Service) createInternalTransfer(
 	}
 
 	// 1. Create signed transaction via KMS
-	txRaw, err := s.wallets.CreateSignedTransaction(
+	txRaw, err = s.wallets.CreateSignedTransaction(
 		ctx,
 		sender,
 		params.RecipientWallet.Address,
@@ -312,6 +330,12 @@ func (s *Service) createInternalTransfer(
 	}
 
 	out.TransactionHashID = transactionHashID
+	if isUTXOBlockchain(currency.Blockchain) {
+		utxoBroadcasted = true
+		if err := s.wallets.MarkBitcoinTransactionBroadcasted(ctx, sender.ID, txRaw, transactionHashID, isTest); err != nil {
+			return out, errors.Wrap(err, "unable to mark UTXO reservations as broadcasted")
+		}
+	}
 
 	if err := s.transactions.UpdateTransactionHash(ctx, 0, tx.ID, transactionHashID); err != nil {
 		// todo
@@ -335,7 +359,7 @@ func (s *Service) rollbackInternalTransfer(
 	out internalTransferOutput,
 	errOut error,
 ) error {
-	if out.TransactionRaw != "" {
+	if out.TransactionRaw != "" && !isUTXOBlockchain(in.SenderWallet.Blockchain.ToMoneyBlockchain()) {
 		if err := s.wallets.DecrementPendingTransaction(ctx, in.SenderWallet.ID, out.IsTest); err != nil {
 			return errors.Wrap(err, "unable to decrement pending transaction")
 		}

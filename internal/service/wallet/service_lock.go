@@ -63,12 +63,41 @@ func (s *Service) AcquireLock(ctx context.Context, merchantID int64, currency mo
 	}
 
 	// case 2: create + lock
-	err = s.store.RunTransaction(ctx, func(ctx context.Context, q repository.Querier) error {
+	acquiredWallet, err = s.createAndLockInboundWallet(ctx, merchantID, currency, blockchainNetwork, isTest)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to create & lock the wallet")
+	}
+
+	return acquiredWallet, nil
+}
+
+// AcquireFreshLock creates and locks a brand-new inbound wallet.
+// Payment collection uses this path because deposit addresses must be single-use.
+func (s *Service) AcquireFreshLock(ctx context.Context, merchantID int64, currency money.CryptoCurrency, isTest bool) (*Wallet, error) {
+	acquiredWallet, err := s.createAndLockInboundWallet(ctx, merchantID, currency, currency.ChooseNetwork(isTest), isTest)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to create & lock the wallet")
+	}
+
+	return acquiredWallet, nil
+}
+
+func (s *Service) createAndLockInboundWallet(
+	ctx context.Context,
+	merchantID int64,
+	currency money.CryptoCurrency,
+	blockchainNetwork string,
+	isTest bool,
+) (*Wallet, error) {
+	var acquiredWallet *Wallet
+
+	err := s.store.RunTransaction(ctx, func(ctx context.Context, q repository.Querier) error {
 		bc := kmswallet.Blockchain(currency.Blockchain.String())
-		acquiredWallet, err = s.create(ctx, q, bc, TypeInbound)
-		if err != nil {
-			return errors.Wrap(err, "unable to create wallet")
+		createdWallet, errCreate := s.create(ctx, q, bc, TypeInbound)
+		if errCreate != nil {
+			return errors.Wrap(errCreate, "unable to create wallet")
 		}
+		acquiredWallet = createdWallet
 
 		lock := lockParams{
 			merchantID: merchantID,
@@ -79,14 +108,14 @@ func (s *Service) AcquireLock(ctx context.Context, merchantID int64, currency mo
 		}
 
 		if errLock := s.lockWallet(ctx, q, lock); errLock != nil {
-			return errors.Wrap(err, "unable to lock wallet")
+			return errors.Wrap(errLock, "unable to lock wallet")
 		}
 
 		return nil
 	})
 
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to create & lock the wallet")
+		return nil, err
 	}
 
 	return acquiredWallet, nil

@@ -83,6 +83,8 @@ definitions:
         example: https://my-store.com
       webhookSettings:
         $ref: '#/definitions/WebhookSettings'
+      paymentSettings:
+        $ref: '#/definitions/PaymentSettings'
       supportedPaymentMethods:
         type: array
         items:
@@ -113,6 +115,21 @@ definitions:
         description: HMAC secret for checking webhook signature
         maxLength: 128
         example: xa9iZoo6
+        x-nullable: false
+        x-omitempty: false
+
+  PaymentSettings:
+    type: object
+    required: [ defaultExpirationMinutes ]
+    x-omitempty: false
+    properties:
+      defaultExpirationMinutes:
+        type: integer
+        format: int64
+        minimum: 1
+        maximum: 1440
+        description: Default invoice expiration in minutes
+        example: 20
         x-nullable: false
         x-omitempty: false
 
@@ -256,6 +273,27 @@ paths:
       responses:
         204:
           description: Webhook data updated
+        400:
+          description: Validation error
+          schema:
+            $ref: 'common.yml#/definitions/ErrorResponse'
+
+  /merchant/{merchantId}/payment-settings:
+    put:
+      summary: Update Merchant's payment settings
+      operationId: updateMerchantPaymentSettings
+      parameters:
+        - $ref: '#/parameters/MerchantId'
+        - in: body
+          name: data
+          required: true
+          description: Payment settings object
+          schema:
+            $ref: '#/definitions/PaymentSettings'
+      tags: [ Merchant ]
+      responses:
+        204:
+          description: Payment settings updated
         400:
           description: Validation error
           schema:

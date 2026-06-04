@@ -104,11 +104,12 @@ func TestHandler_CheckIncomingTransactionsProgress(t *testing.T) {
 	require.NoError(t, err)
 
 	// And 1 incoming 'pending' & 2 internal txs
-	tc.Must.CreateTransaction(t, mt.ID, asIncoming)
+	pendingTX := tc.Must.CreateTransaction(t, mt.ID, asIncoming)
 	tc.Must.CreateTransaction(t, 0, asInternal)
 	tc.Must.CreateTransaction(t, 0, asInternal)
 
 	// And expected mock
+	tc.ProcessingMock.SetupBatchDiscoverIncomingTransactions([]int64{pendingTX.ID}, nil)
 	tc.ProcessingMock.SetupBatchCheckIncomingTransactions([]int64{tx1.ID, tx2.ID}, nil)
 
 	// ACT
@@ -127,7 +128,7 @@ func TestScheduler(t *testing.T) {
 			tc := setup(t)
 
 			// Given mocked responses from tatum KMS
-			allBlockchains := tc.Services.Blockchain.ListSupportedBlockchains()
+			allBlockchains := tc.Services.Blockchain.ListRuntimeSupportedBlockchains()
 			for _, bc := range allBlockchains {
 				tc.SetupCreateWalletWithSubscription(bc.String(), "abc-123", "pub-key-123")
 			}
@@ -180,7 +181,7 @@ func TestScheduler(t *testing.T) {
 			// Check job logs
 			// "fetched inbound wallets" + "matched inbound balances" + "created internal transactions"
 			tc.AssertTableRows(t, "job_logs", 3)
-			tc.AssertTableRows(t, "wallets", 4)
+			tc.AssertTableRows(t, "wallets", int64(len(allBlockchains)))
 
 			// Check that duplicate outbound wallet duplicate creation is not possible
 			tc.SetupCreateWalletWithSubscription("ETH", "0x2222", "0x123-pub-key")
@@ -372,7 +373,7 @@ func TestScheduler(t *testing.T) {
 		})
 
 		// And mocked responses from tatum KMS for ensuring outbound wallets
-		allBlockchains := tc.Services.Blockchain.ListSupportedBlockchains()
+		allBlockchains := tc.Services.Blockchain.ListRuntimeSupportedBlockchains()
 		for _, bc := range allBlockchains {
 			tc.SetupCreateWalletWithSubscription(bc.String(), "abc-123", "pub-key-123")
 		}

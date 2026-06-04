@@ -13,6 +13,7 @@ import (
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	"github.com/oxygenpay/oxygen/internal/lock"
 	"github.com/oxygenpay/oxygen/internal/log"
+	"github.com/oxygenpay/oxygen/internal/provider/chain"
 	"github.com/oxygenpay/oxygen/internal/provider/tatum"
 	"github.com/oxygenpay/oxygen/internal/provider/trongrid"
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
@@ -44,6 +45,7 @@ type Locator struct {
 	eventBus *bus.PubSub
 
 	// Provides
+	chainProvider    *chain.Provider
 	tatumProvider    *tatum.Provider
 	trongridProvider *trongrid.Provider
 
@@ -135,6 +137,14 @@ func (loc *Locator) TatumProvider() *tatum.Provider {
 	return loc.tatumProvider
 }
 
+func (loc *Locator) ChainProvider() *chain.Provider {
+	loc.init("provider.chain", func() {
+		loc.chainProvider = chain.New(loc.config.Providers.Chain, loc.logger)
+	})
+
+	return loc.chainProvider
+}
+
 func (loc *Locator) TrongridProvider() *trongrid.Provider {
 	loc.init("provider.trongrid", func() {
 		loc.trongridProvider = trongrid.New(loc.config.Providers.Trongrid, loc.logger)
@@ -178,6 +188,7 @@ func (loc *Locator) BlockchainService() *blockchain.Service {
 		loc.blockchainService = blockchain.New(
 			currencies,
 			blockchain.Providers{
+				Chain:    loc.ChainProvider(),
 				Tatum:    loc.TatumProvider(),
 				Trongrid: loc.TrongridProvider(),
 			},

@@ -1,15 +1,25 @@
 version: '3.8'
 services:
   oxygen:
-    image: ghcr.io/oxygenpay/oxygen:latest
+    build: .
+    image: oxygen-local:dev
     command: all-in-one --skip-config
     env_file:
       - docker.env
     volumes:
       - './tmp:/src/tmp'
-    ports: [ '80:80' ]
+    ports: [ '127.0.0.1:8080:80' ]
     networks: [ net-oxygen ]
     depends_on: [ postgres ]
+    restart: on-failure
+
+  documentation:
+    build:
+      context: .
+      dockerfile: documentation/Dockerfile
+    image: oxygen-docs-local:dev
+    ports: [ '127.0.0.1:8081:80' ]
+    networks: [ net-oxygen ]
     restart: on-failure
 
   postgres:
@@ -22,7 +32,7 @@ services:
       - POSTGRES_PASSWORD=oxygen
     volumes:
       - 'pg-data:/var/lib/postgresql/data'
-    ports: [ '5432:5432' ]
+    ports: [ '127.0.0.1:15432:5432' ]
     networks: [ net-oxygen ]
 
 networks:

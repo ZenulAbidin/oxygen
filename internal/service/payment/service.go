@@ -604,16 +604,22 @@ type UpdateProps struct {
 }
 
 func (s *Service) Update(ctx context.Context, merchantID, id int64, props UpdateProps) (*Payment, error) {
+	now := time.Now()
 	update := repository.UpdatePaymentParams{
 		ID:           id,
 		MerchantID:   merchantID,
-		UpdatedAt:    time.Now(),
+		UpdatedAt:    now,
 		Status:       props.Status.String(),
 		SetExpiresAt: props.Status == StatusLocked,
 	}
 
 	if update.SetExpiresAt {
-		update.ExpiresAt = repository.TimeToNullable(time.Now().UTC().Add(ExpirationPeriodForLocked))
+		mt, err := s.merchants.GetByID(ctx, merchantID, false)
+		if err != nil {
+			return nil, err
+		}
+
+		update.ExpiresAt = repository.TimeToNullable(now.UTC().Add(mt.Settings().PaymentExpirationPeriod()))
 	}
 
 	pt, err := s.repo.UpdatePayment(ctx, update)

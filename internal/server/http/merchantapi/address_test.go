@@ -97,6 +97,20 @@ func TestAddressRoutes(t *testing.T) {
 			},
 			{
 				req: model.CreateMerchantAddressRequest{
+					Address:    "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+					Blockchain: string(kmswallet.BTC),
+					Name:       "A1 testnet",
+				},
+			},
+			{
+				req: model.CreateMerchantAddressRequest{
+					Address:    "ltc1q43ugfc3tawhzvxgjrycq0papwmndlc7qc77pzz",
+					Blockchain: string(kmswallet.LTC),
+					Name:       "LTC address",
+				},
+			},
+			{
+				req: model.CreateMerchantAddressRequest{
 					Address:    "0x690b9a9e9aa1c9db991c7721a92d351db4fac990",
 					Blockchain: string(kmswallet.ETH),
 					Name:       "A2",

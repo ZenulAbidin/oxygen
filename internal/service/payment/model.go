@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/oxygenpay/oxygen/internal/money"
+	"github.com/oxygenpay/oxygen/internal/service/merchant"
 	"github.com/oxygenpay/oxygen/internal/service/transaction"
 	"github.com/oxygenpay/oxygen/internal/service/wallet"
 	"github.com/oxygenpay/oxygen/internal/util"
@@ -124,7 +125,15 @@ func (p *Payment) WithdrawalAddressID() int64 {
 }
 
 func (p *Payment) ExpirationDurationMin() int64 {
-	return int64(ExpirationPeriodForLocked / time.Minute)
+	if p.ExpiresAt != nil && !p.UpdatedAt.IsZero() && p.ExpiresAt.After(p.UpdatedAt) {
+		duration := p.ExpiresAt.Sub(p.UpdatedAt)
+		minutes := int64((duration + time.Minute - time.Nanosecond) / time.Minute)
+		if merchant.ValidatePaymentExpirationMinutes(minutes) == nil {
+			return minutes
+		}
+	}
+
+	return merchant.DefaultPaymentExpirationMinutes
 }
 
 func (p *Payment) LinkID() int64 {

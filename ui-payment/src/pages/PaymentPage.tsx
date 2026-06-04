@@ -11,8 +11,10 @@ import paymentProvider from "src/providers/paymentProvider";
 import LoadingTextIcon from "src/components/LoadingTextIcon";
 import CopyButton from "src/components/CopyButton";
 import ProgressCircle from "src/components/ProgressCircle";
+import ConfirmationProgress from "src/components/ConfirmationProgress";
 import DropDown, {DropDownItem} from "src/components/DropDown";
 import renderConvertedResult from "src/utils/renderConvertedResult";
+import {isNetworkError} from "src/utils/apiRequest";
 
 const schema = Yup.object({
     email: Yup.string().email().required("Please fill an email")
@@ -22,17 +24,24 @@ interface EmailForm {
     email: string;
 }
 
+const logNonNetworkError = (message: string, error: unknown) => {
+    if (isNetworkError(error)) {
+        return;
+    }
+
+    console.error(message, error);
+};
+
 const PaymentPage: React.FC = () => {
     const navigate = useNavigate();
     const {payment, setPayment} = usePayment();
-    const [paymentProcessError, setPaymentProcessError] = React.useState<boolean>(false);
     const [emailFilled, setEmailFilled] = React.useState<boolean>(false);
     const [currencyChosen, setCurrencyChosen] = React.useState<boolean>(false);
     const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>();
     const [convertResult, setConvertResult] = React.useState<CurrencyConvertResult>();
     const [availableMethods, setAvailableMethods] = React.useState<PaymentMethod[]>([]);
 
-    const updatePayment = async () => {
+    const updatePayment = React.useCallback(async () => {
         if (!payment?.id) {
             return;
         }
@@ -41,10 +50,9 @@ const PaymentPage: React.FC = () => {
             const paymentResponce = await paymentProvider.getPayment(payment.id);
             setPayment(paymentResponce);
         } catch (error) {
-            setPaymentProcessError(true);
-            console.error("Error ocurred:", error);
+            logNonNetworkError("Error occurred:", error);
         }
-    };
+    }, [payment?.id, setPayment]);
 
     const formikConfig = useFormik({
         initialValues: {
@@ -59,7 +67,7 @@ const PaymentPage: React.FC = () => {
                 await paymentProvider.putPayment(payment.id);
                 await updatePayment();
             } catch (error) {
-                console.error("Error occurred:", error);
+                logNonNetworkError("Error occurred:", error);
             }
         },
         validationSchema: schema
@@ -79,7 +87,7 @@ const PaymentPage: React.FC = () => {
 
             setConvertResult(response);
         } catch (error) {
-            console.error("Error ocurred:", error);
+            logNonNetworkError("Error occurred:", error);
         }
     };
 
@@ -95,7 +103,7 @@ const PaymentPage: React.FC = () => {
                 await getCryptoCurrencyConvert({cryptoCurrency: payment.paymentMethod.ticker});
                 setCurrencyChosen(true);
             } catch (error) {
-                console.error("Error ocurred:", error);
+                logNonNetworkError("Error occurred:", error);
                 setCurrencyChosen(false);
             }
         }
@@ -112,7 +120,7 @@ const PaymentPage: React.FC = () => {
         } catch (error) {
             setCurrencyChosen(false);
             setEmailFilled(false);
-            console.error("Error ocurred:", error);
+            logNonNetworkError("Error occurred:", error);
         }
     };
 
@@ -127,8 +135,6 @@ const PaymentPage: React.FC = () => {
                     payment
                 }
             });
-        } else if (payment.isLocked && payment.paymentInfo?.status === "pending") {
-            setTimeout(updatePayment, 2000);
         } else if (
             payment.isLocked &&
             (payment.paymentInfo?.status === "success" || payment.paymentInfo?.status === "inProgress")
@@ -142,6 +148,15 @@ const PaymentPage: React.FC = () => {
             getSupportedMethods();
         }
     }, [payment]);
+
+    React.useEffect(() => {
+        if (!payment?.id || !payment.isLocked || payment.paymentInfo?.status !== "pending") {
+            return;
+        }
+
+        const timerId = window.setInterval(updatePayment, 2000);
+        return () => window.clearInterval(timerId);
+    }, [payment?.id, payment?.isLocked, payment?.paymentInfo?.status, updatePayment]);
 
     const onSelectPaymentMethod = async (cryptoCurrency: string) => {
         if (
@@ -165,7 +180,7 @@ const PaymentPage: React.FC = () => {
             setCurrencyChosen(true);
         } catch (error) {
             setCurrencyChosen(false);
-            console.error("Error ocurred:", error);
+            logNonNetworkError("Error occurred:", error);
         }
     };
 
@@ -184,7 +199,7 @@ const PaymentPage: React.FC = () => {
             setEmailFilled(true);
         } catch (error) {
             setEmailFilled(false);
-            console.error("Error ocurred:", error);
+            logNonNetworkError("Error occurred:", error);
         }
     };
 
@@ -259,6 +274,10 @@ const PaymentPage: React.FC = () => {
     );
 
     const convertedResultRendered = renderConvertedResult(convertResult?.cryptoAmount, paymentMethod?.displayName);
+    const observedTransaction = payment?.paymentInfo?.observedTransaction;
+    const paymentWaitMessage = observedTransaction
+        ? "Payment detected. Waiting for network confirmations."
+        : "Waiting for payment. Please send required crypto amount to specified address below.";
 
     return (
         <div className="relative">
@@ -272,32 +291,29 @@ const PaymentPage: React.FC = () => {
                 </>
             )}
 
-            {payment?.isLocked === true && payment.paymentInfo && payment.paymentMethod && paymentProcessError && (
+            {payment?.isLocked === true && payment.paymentInfo && payment.paymentMethod && (
                 <>
-                    <ProgressCircle
-                        expiresAt={payment.paymentInfo.expiresAt}
-                        minutesCount={payment.paymentInfo.expirationDurationMin}
-                        error={paymentProcessError}
-                    />
-                    <h2 className="block mx-auto text-sm font-medium text-card-desc text-center">
-                        Error occurred while processing your payment.
-                    </h2>
-                </>
-            )}
-
-            {payment?.isLocked === true && payment.paymentInfo && payment.paymentMethod && !paymentProcessError && (
-                <>
-                    <ProgressCircle
-                        expiresAt={payment.paymentInfo.expiresAt}
-                        minutesCount={payment.paymentInfo.expirationDurationMin}
-                        error={paymentProcessError}
-                    />
+                    {observedTransaction ? (
+                        <ConfirmationProgress
+                            confirmations={observedTransaction.confirmations}
+                            requiredConfirmations={observedTransaction.requiredConfirmations}
+                            isMempool={observedTransaction.isMempool}
+                        />
+                    ) : (
+                        <ProgressCircle
+                            expiresAt={payment.paymentInfo.expiresAt}
+                            minutesCount={payment.paymentInfo.expirationDurationMin}
+                            error={false}
+                        />
+                    )}
                     <span className="block font-medium text-center text-2xl mb-1">{getPrice()}</span>
                     <h2 className="block mx-auto text-sm font-medium text-card-desc text-center mb-5 sm:mb-4 sm:hidden">
-                        Waiting for payment. Scan the QR code in your app or enter payment information manually
+                        {observedTransaction
+                            ? paymentWaitMessage
+                            : "Waiting for payment. Scan the QR code in your app or enter payment information manually"}
                     </h2>
                     <h2 className="block mx-auto text-sm font-medium text-card-desc text-center mb-5 sm:mb-4 lg:hidden">
-                        Waiting for payment. Please send required crypto amount to specified address below.
+                        {paymentWaitMessage}
                     </h2>
                     <div className="flex relative justify-center mb-7 sm:hidden">
                         <QRCodeSVG size={180} level={"H"} value={payment.paymentInfo.paymentLink} />
@@ -329,6 +345,33 @@ const PaymentPage: React.FC = () => {
                         textToCopy={payment.paymentInfo.amountFormatted}
                         displayText={payment.paymentInfo.amountFormatted + " " + payment.paymentMethod.displayName}
                     />
+                    {observedTransaction && (
+                        <div className="w-full border border-main-green-3 rounded-lg px-4 py-3 mb-6 text-sm">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                                <span className="font-medium text-main-green-1">Payment detected</span>
+                                <span className="shrink-0 text-card-desc">
+                                    {observedTransaction.confirmations}/{observedTransaction.requiredConfirmations}
+                                </span>
+                            </div>
+                            <div className="text-card-desc mb-2">
+                                Confirmations required before final payment status update
+                            </div>
+                            {observedTransaction.explorerLink ? (
+                                <a
+                                    className="block text-main-green-1 break-all"
+                                    href={observedTransaction.explorerLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    {observedTransaction.transactionHash}
+                                </a>
+                            ) : (
+                                <span className="block text-card-desc break-all">
+                                    {observedTransaction.transactionHash}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </>
             )}
 

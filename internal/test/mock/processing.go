@@ -21,6 +21,7 @@ type ProcessingProxyMock struct {
 	t                          *testing.T
 	service                    *processing.Service
 	mu                         sync.RWMutex
+	incomingDiscoverCalls      map[string]error
 	incomingCheckCalls         map[string]error
 	internalTransferCalls      map[string]lo.Tuple2[*processing.TransferResult, error]
 	internalTransferCheckCalls map[string]error
@@ -33,6 +34,7 @@ func NewProcessingProxyMock(t *testing.T, service *processing.Service) *Processi
 	return &ProcessingProxyMock{
 		t:                          t,
 		service:                    service,
+		incomingDiscoverCalls:      map[string]error{},
 		incomingCheckCalls:         map[string]error{},
 		internalTransferCalls:      map[string]lo.Tuple2[*processing.TransferResult, error]{},
 		internalTransferCheckCalls: map[string]error{},
@@ -40,6 +42,20 @@ func NewProcessingProxyMock(t *testing.T, service *processing.Service) *Processi
 		withdrawalCheckCalls:       map[string]error{},
 		expirationCheckCalls:       map[string]error{},
 	}
+}
+
+func (m *ProcessingProxyMock) BatchDiscoverIncomingTransactions(_ context.Context, transactionIDs []int64) error {
+	key := idsKey(transactionIDs)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	err, exists := m.incomingDiscoverCalls[key]
+	if !exists {
+		return fmt.Errorf("unexpected call (*ProcessingProxyMock).BatchDiscoverIncomingTransactions for %q", key)
+	}
+
+	return err
 }
 
 func (m *ProcessingProxyMock) BatchCheckIncomingTransactions(_ context.Context, transactionIDs []int64) error {
@@ -130,6 +146,15 @@ func (m *ProcessingProxyMock) BatchExpirePayments(_ context.Context, paymentIDs 
 	}
 
 	return err
+}
+
+func (m *ProcessingProxyMock) SetupBatchDiscoverIncomingTransactions(transactionIDs []int64, err error) {
+	key := idsKey(transactionIDs)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.incomingDiscoverCalls[key] = err
 }
 
 func (m *ProcessingProxyMock) SetupBatchCreateInternalTransfers(

@@ -3,8 +3,8 @@ package test
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 	"github.com/oxygenpay/oxygen/internal/lock"
 	"github.com/oxygenpay/oxygen/internal/log"
 	"github.com/oxygenpay/oxygen/internal/money"
+	"github.com/oxygenpay/oxygen/internal/provider/chain"
 	tatumprovider "github.com/oxygenpay/oxygen/internal/provider/tatum"
 	"github.com/oxygenpay/oxygen/internal/provider/trongrid"
 	httpServer "github.com/oxygenpay/oxygen/internal/server/http"
@@ -80,6 +81,7 @@ type Providers struct {
 	KMS          *kmsmock.ClientService
 	Tatum        *tatumprovider.Provider
 	TatumMock    *TatumMock
+	Chain        *chain.Provider
 	Trongrid     *trongrid.Provider
 	TrongridMock *fakes.Trongrid
 }
@@ -106,12 +108,14 @@ func NewIntegrationTest(t *testing.T) *IntegrationTest {
 
 	// Providers
 	tatumProvider, tatumMock := NewTatum(kv, &logger)
+	chainProvider := chain.New(chain.Config{}, &logger)
 	trongridProvider, trongridMock := fakes.NewTrongrid(&logger)
 	kmsWalletsClient := &kmsmock.ClientService{}
 
 	providers := &Providers{
 		KMS:          kmsWalletsClient,
 		Tatum:        tatumProvider,
+		Chain:        chainProvider,
 		Trongrid:     trongridProvider,
 		TatumMock:    tatumMock,
 		TrongridMock: trongridMock,
@@ -126,6 +130,7 @@ func NewIntegrationTest(t *testing.T) *IntegrationTest {
 	blockchainService := blockchain.New(
 		currencies,
 		blockchain.Providers{
+			Chain:    chainProvider,
 			Tatum:    tatumProvider,
 			Trongrid: trongridProvider,
 		},
@@ -330,7 +335,7 @@ func (i *IntegrationTest) TearDown() {
 }
 
 func setupTmpDir(t *testing.T, dir string) string {
-	fullPath := fmt.Sprintf("%s%s/%s", os.TempDir(), util.Strings.Random(6), dir)
+	fullPath := filepath.Join(os.TempDir(), util.Strings.Random(6), dir)
 
 	require.NoError(t, os.MkdirAll(fullPath, os.ModePerm))
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(fullPath)) })

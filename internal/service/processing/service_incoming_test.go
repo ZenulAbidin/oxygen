@@ -21,6 +21,109 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestService_BatchDiscoverIncomingTransactions(t *testing.T) {
+	tc := test.NewIntegrationTest(t)
+
+	mt, _ := tc.Must.CreateMerchant(t, 1)
+	eth := tc.Must.GetCurrency(t, "ETH")
+
+	existingInbound := tc.Must.CreateWallet(t, eth.Blockchain.String(), "0x123-inbound", "0x-pub-key", wallet.TypeInbound)
+	tc.SetupCreateWalletWithSubscription(eth.Blockchain.String(), "0x456-fresh-inbound", "0x-fresh-pub-key")
+
+	price, err := money.FiatFromFloat64(money.USD, 50)
+	require.NoError(t, err)
+
+	pt, err := tc.Services.Payment.CreatePayment(tc.Context, mt.ID, payment.CreatePaymentProps{
+		MerchantOrderUUID: uuid.New(),
+		Money:             price,
+		IsTest:            false,
+	})
+	require.NoError(t, err)
+
+	_, err = tc.Services.Payment.AssignCustomerByEmail(tc.Context, pt, "user@me.com")
+	require.NoError(t, err)
+
+	tc.Providers.TatumMock.SetupRates(eth.Ticker, money.USD, 1)
+
+	method, err := tc.Services.Processing.SetPaymentMethod(tc.Context, pt, eth.Ticker)
+	require.NoError(t, err)
+
+	err = tc.Services.Processing.LockPaymentOptions(tc.Context, mt.ID, pt.ID)
+	require.NoError(t, err)
+
+	tx, err := tc.Services.Transaction.GetByID(tc.Context, mt.ID, method.TransactionID)
+	require.NoError(t, err)
+	require.NotEqual(t, existingInbound.Address, tx.RecipientAddress)
+	require.Equal(t, "0x456-fresh-inbound", tx.RecipientAddress)
+
+	txHash := "0xabc123"
+	sender := "0x123-sender"
+	coin := tc.Must.GetBlockchainCoin(t, tx.Currency.Blockchain)
+	networkFee := lo.Must(coin.MakeAmount("1000"))
+	tc.Fakes.SetupListIncomingTransactions(tx.RecipientAddress, tx.Currency, tx.IsTest, []blockchain.IncomingTransaction{
+		{
+			Currency:      tx.Currency,
+			Amount:        tx.Amount,
+			SenderAddress: sender,
+			TransactionID: txHash,
+			NetworkID:     tx.NetworkID(),
+			BlockNumber:   100,
+		},
+	})
+	tc.Fakes.SetupGetTransactionReceipt(tx.Currency.Blockchain, txHash, tx.IsTest, &blockchain.TransactionReceipt{
+		Blockchain:    tx.Currency.Blockchain,
+		IsTest:        tx.IsTest,
+		Sender:        sender,
+		Recipient:     tx.RecipientAddress,
+		Hash:          txHash,
+		NetworkFee:    networkFee,
+		Success:       true,
+		Confirmations: 11,
+		IsConfirmed:   false,
+	}, nil)
+
+	err = tc.Services.Processing.BatchDiscoverIncomingTransactions(tc.Context, []int64{tx.ID})
+	require.NoError(t, err)
+
+	tx, err = tc.Services.Transaction.GetByID(tc.Context, mt.ID, tx.ID)
+	require.NoError(t, err)
+
+	pt, err = tc.Services.Payment.GetByID(tc.Context, mt.ID, pt.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, transaction.StatusPending, tx.Status)
+	assert.Nil(t, tx.HashID)
+	assert.Nil(t, tx.SenderAddress)
+	assert.Equal(t, payment.StatusLocked, pt.Status)
+
+	tc.Fakes.SetupGetTransactionReceipt(tx.Currency.Blockchain, txHash, tx.IsTest, &blockchain.TransactionReceipt{
+		Blockchain:    tx.Currency.Blockchain,
+		IsTest:        tx.IsTest,
+		Sender:        sender,
+		Recipient:     tx.RecipientAddress,
+		Hash:          txHash,
+		NetworkFee:    networkFee,
+		Success:       true,
+		Confirmations: 12,
+		IsConfirmed:   true,
+	}, nil)
+
+	err = tc.Services.Processing.BatchDiscoverIncomingTransactions(tc.Context, []int64{tx.ID})
+	require.NoError(t, err)
+
+	tx, err = tc.Services.Transaction.GetByID(tc.Context, mt.ID, tx.ID)
+	require.NoError(t, err)
+
+	pt, err = tc.Services.Payment.GetByID(tc.Context, mt.ID, pt.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, transaction.StatusCompleted, tx.Status)
+	assert.Equal(t, txHash, *tx.HashID)
+	assert.Equal(t, sender, *tx.SenderAddress)
+	assert.Equal(t, tx.Amount, *tx.FactAmount)
+	assert.Equal(t, payment.StatusSuccess, pt.Status)
+}
+
 //nolint:funlen
 func TestService_BatchCheckIncomingTransactions(t *testing.T) {
 	tc := test.NewIntegrationTest(t)
@@ -38,8 +141,8 @@ func TestService_BatchCheckIncomingTransactions(t *testing.T) {
 
 	// Given shortcut for imitating incoming tx
 	incomingTX := func(fiat money.FiatCurrency, price float64, crypto money.CryptoCurrency, isTest bool) *transaction.Transaction {
-		// 0. create setup inbound wallet
-		tc.Must.CreateWallet(t, crypto.Blockchain.String(), "0x123-inbound", "0x-pub-key", wallet.TypeInbound)
+		// 0. set up the single-use inbound wallet KMS will create for this payment
+		tc.SetupCreateWalletWithSubscription(crypto.Blockchain.String(), test.RandomAddress, "0x-pub-key")
 
 		// 1. create & lock payment
 		merchantOrderID := uuid.New().String()
@@ -634,8 +737,8 @@ func TestService_BatchExpirePayments(t *testing.T) {
 
 	// Given a shortcut for mocking incoming payment
 	selectCurrency := func(p *payment.Payment, crypto money.CryptoCurrency, emulateCurrencySwitch, lock bool) {
-		// 0. create setup inbound wallet
-		tc.Must.CreateWallet(t, crypto.Blockchain.String(), test.RandomAddress, "0x-pub-key", wallet.TypeInbound)
+		// 0. set up the single-use inbound wallet KMS will create for this payment
+		tc.SetupCreateWalletWithSubscription(crypto.Blockchain.String(), test.RandomAddress, "0x-pub-key")
 
 		_, err := tc.Services.Payment.AssignCustomerByEmail(tc.Context, p, "user@me.com")
 		require.NoError(t, err)
@@ -646,7 +749,7 @@ func TestService_BatchExpirePayments(t *testing.T) {
 		// emulate "user has switched currencies several times"
 		if emulateCurrencySwitch {
 			for _, ticker := range []string{"ETH", "MATIC", "TRON"} {
-				tc.Must.CreateWallet(t, ticker, test.RandomAddress, "0x-pub-key", wallet.TypeInbound)
+				tc.SetupCreateWalletWithSubscription(ticker, test.RandomAddress, "0x-pub-key")
 				tc.Providers.TatumMock.SetupRates(ticker, money.FiatCurrency(p.Price.Ticker()), 1)
 				_, err = tc.Services.Processing.SetPaymentMethod(tc.Context, p, ticker)
 				require.NoError(t, err)
@@ -686,10 +789,13 @@ func TestService_BatchExpirePayments(t *testing.T) {
 
 	// Given a shortcut for setting expiration timestamp
 	setExpiration := func(pt *payment.Payment, expiresAt time.Time) {
-		_, err := tc.Repository.UpdatePayment(tc.Context, repository.UpdatePaymentParams{
+		current, err := tc.Services.Payment.GetByID(tc.Context, pt.MerchantID, pt.ID)
+		require.NoError(t, err)
+
+		_, err = tc.Repository.UpdatePayment(tc.Context, repository.UpdatePaymentParams{
 			ID:           pt.ID,
 			MerchantID:   pt.MerchantID,
-			Status:       pt.Status.String(),
+			Status:       current.Status.String(),
 			UpdatedAt:    time.Now(),
 			ExpiresAt:    repository.TimeToNullable(expiresAt),
 			SetExpiresAt: true,
@@ -724,6 +830,7 @@ func TestService_BatchExpirePayments(t *testing.T) {
 	pt2 := incomingPayment(money.USD, 50, eth, false)    // should expire
 	pt3 := incomingPayment(money.USD, 50, ethUSDT, true) // should expire
 	pt4 := incomingPayment(money.USD, 100, tron, true)
+	pt7 := incomingPayment(money.USD, 50, eth, false) // should not expire: unconfirmed transaction is observed
 
 	pt5Raw := tc.CreateRawPayment(t, mt.ID, alterCreatedAt(-time.Hour))
 	pt5, err := tc.Services.Payment.GetByID(tc.Context, pt5Raw.MerchantID, pt5Raw.ID)
@@ -736,17 +843,47 @@ func TestService_BatchExpirePayments(t *testing.T) {
 	selectCurrency(pt6, eth, true, false)
 
 	// Check that wallets are locked properly
-	tc.AssertTableRows(t, "wallet_locks", 3+1)
+	tc.AssertTableRows(t, "wallet_locks", 3+2)
 
 	// And some of them are outdated
 	setExpiration(pt2, time.Now())
 	setExpiration(pt3, time.Now().Add(-time.Minute))
+	setExpiration(pt7, time.Now().Add(-time.Minute))
+
+	for _, pt := range []*payment.Payment{pt2, pt3, pt6} {
+		tx := loadTx(pt)
+		tc.Fakes.SetupListIncomingTransactions(tx.RecipientAddress, tx.Currency, tx.IsTest, nil)
+	}
+
+	pt7Tx := loadTx(pt7)
+	pt7Hash := "0xobserved-unconfirmed"
+	pt7Sender := "0xobserved-sender"
+	tc.Fakes.SetupListIncomingTransactions(pt7Tx.RecipientAddress, pt7Tx.Currency, pt7Tx.IsTest, []blockchain.IncomingTransaction{
+		{
+			TransactionID: pt7Hash,
+			SenderAddress: pt7Sender,
+			Amount:        pt7Tx.Amount,
+			Currency:      pt7Tx.Currency,
+			NetworkID:     pt7Tx.NetworkID(),
+			IsMempool:     true,
+		},
+	})
+	tc.Fakes.SetupGetTransactionReceipt(pt7Tx.Currency.Blockchain, pt7Hash, pt7Tx.IsTest, &blockchain.TransactionReceipt{
+		Blockchain:    pt7Tx.Currency.Blockchain,
+		IsTest:        pt7Tx.IsTest,
+		Sender:        pt7Sender,
+		Recipient:     pt7Tx.RecipientAddress,
+		Hash:          pt7Hash,
+		Success:       true,
+		Confirmations: 1,
+		IsConfirmed:   false,
+	}, nil)
 
 	// Given clear bus events
 	tc.Fakes.Bus.Clear()
 
 	// ACT
-	err = tc.Services.Processing.BatchExpirePayments(tc.Context, []int64{pt2.ID, pt3.ID, pt6.ID})
+	err = tc.Services.Processing.BatchExpirePayments(tc.Context, []int64{pt2.ID, pt3.ID, pt6.ID, pt7.ID})
 
 	// ASSERT
 	assert.NoError(t, err)
@@ -758,14 +895,16 @@ func TestService_BatchExpirePayments(t *testing.T) {
 	assert.Equal(t, payment.StatusLocked, fresh(pt4).Status)
 	assert.Equal(t, payment.StatusPending, fresh(pt5).Status)
 	assert.Equal(t, payment.StatusFailed, fresh(pt6).Status)
+	assert.Equal(t, payment.StatusLocked, fresh(pt7).Status)
 
 	// Check tx statuses
 	assert.Equal(t, transaction.StatusCancelled, loadTx(pt2).Status)
 	assert.Equal(t, transaction.StatusCancelled, loadTx(pt3).Status)
 	assert.Equal(t, transaction.StatusPending, loadTx(pt4).Status)
 	assert.Equal(t, transaction.StatusCancelled, loadTx(pt6).Status)
+	assert.Equal(t, transaction.StatusPending, loadTx(pt7).Status)
 
-	tc.AssertTableRows(t, "wallet_locks", 1)
+	tc.AssertTableRows(t, "wallet_locks", 2)
 
 	// Check that webhooks were fired
 	require.Len(t, tc.Fakes.GetBusCalls(), 3)

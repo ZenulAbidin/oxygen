@@ -3,6 +3,7 @@ import {Form, Input, Button, Space, Typography, FormInstance} from "antd";
 import {WebhookSettings} from "src/types";
 import {sleep} from "src/utils";
 import LinkInput from "src/components/link-input/link-input";
+import documentationURLs from "src/utils/documentation";
 
 interface Props {
     onCancel: (value: boolean) => void;
@@ -51,7 +52,7 @@ const WebhookSettingsForm: React.FC<Props> = (props: Props) => {
                             </Typography.Paragraph>
                             <Typography.Paragraph>
                                 <Typography.Link
-                                    href="https://docs.o2pay.co/webhooks"
+                                    href={documentationURLs.webhooks}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >

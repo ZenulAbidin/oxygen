@@ -1,7 +1,13 @@
-import axios, {AxiosError} from "axios";
+import axios, {AxiosError, AxiosRequestConfig} from "axios";
 import {notification} from "antd";
 import {ErrorResponse} from "src/types";
-import authProvider from "src/providers/auth-provider";
+import withApiPath from "src/utils/with-api-path";
+
+export const DASHBOARD_UNAUTHORIZED_EVENT = "oxygen-dashboard-unauthorized";
+
+interface RetryableAxiosRequestConfig extends AxiosRequestConfig {
+    _retry?: boolean;
+}
 
 const apiRequest = axios.create({
     baseURL: import.meta.env.VITE_BACKEND_HOST,
@@ -13,9 +19,40 @@ const apiRequest = axios.create({
     withCredentials: true
 });
 
+let unauthorizedNotificationShown = false;
+
+export const setDashboardCSRFToken = (csrf?: string) => {
+    if (csrf) {
+        apiRequest.defaults.headers.common["x-csrf-token"] = csrf;
+        unauthorizedNotificationShown = false;
+    }
+};
+
+const refreshCSRFToken = async (): Promise<string> => {
+    const response = await apiRequest.get(withApiPath(`/auth/csrf-cookie`));
+    const csrf = response.headers["x-csrf-token"];
+
+    setDashboardCSRFToken(csrf);
+
+    return csrf ?? "";
+};
+
+const dispatchUnauthorized = () => {
+    if (!unauthorizedNotificationShown) {
+        unauthorizedNotificationShown = true;
+        notification.error({
+            message: "Authentication required",
+            description: "Please sign in again.",
+            placement: "bottomRight"
+        });
+    }
+
+    window.dispatchEvent(new Event(DASHBOARD_UNAUTHORIZED_EVENT));
+};
+
 apiRequest.interceptors.response.use(undefined, async (error: AxiosError) => {
     if (!error.response) {
-        return;
+        return Promise.reject(error);
     }
 
     if (error.response.status === 400) {
@@ -47,16 +84,26 @@ apiRequest.interceptors.response.use(undefined, async (error: AxiosError) => {
             });
         }
     } else if (error.response.status === 403) {
-        try {
-            const newToken = await authProvider.getCookie();
+        const originalRequest = error.config as RetryableAxiosRequestConfig | undefined;
 
-            if (error.config?.headers && newToken.length) {
-                error.config.headers["x-csrf-token"] = newToken;
-                return axios.request(error.config);
+        if (!originalRequest || originalRequest._retry) {
+            return Promise.reject(error);
+        }
+
+        originalRequest._retry = true;
+
+        try {
+            const newToken = await refreshCSRFToken();
+
+            if (originalRequest.headers && newToken.length) {
+                originalRequest.headers["x-csrf-token"] = newToken;
+                return apiRequest.request(originalRequest);
             }
         } catch (e) {
             console.error("Ocurred a error: ", e);
         }
+    } else if (error.response.status === 401) {
+        dispatchUnauthorized();
     } else if (error.response.status !== 401) {
         notification.error({
             message: "Something went wrong",

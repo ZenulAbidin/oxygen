@@ -28,6 +28,8 @@ import {sleep} from "src/utils";
 import PaymentLinksPage from "src/pages/payment-links-page/payments-links-page";
 import useSharedPosthogStatus from "src/hooks/use-posthog-status";
 import {toggled} from "./providers/toggles";
+import {DASHBOARD_UNAUTHORIZED_EVENT} from "src/utils/api-request";
+import documentationURLs from "src/utils/documentation";
 
 interface MenuItem {
     path: string;
@@ -57,7 +59,7 @@ const defaultMenus: MenuItem[] = [
         name: "Settings"
     },
     {
-        path: "https://docs.o2pay.co/",
+        path: documentationURLs.home,
         name: "Documentation"
     }
 ];
@@ -101,35 +103,45 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = React.useState<boolean>(true);
 
     const loadUserInfo = async () => {
+        setIsLoading(true);
         let newMerchantId = merchantId;
         let user: User;
 
-        const getCookie = async () => {
+        const redirectToLogin = () => {
+            setUser(undefined);
+            setMerchantId(null);
+            navigate("/login", {
+                replace: true,
+                state: {
+                    isNeedLogout: true
+                }
+            });
+        };
+
+        const getCookie = async (): Promise<boolean> => {
             try {
                 await authProvider.getCookie();
+                return true;
             } catch (e) {
                 if (e instanceof AxiosError && e.response?.status === 401) {
-                    navigate("/login", {
-                        state: {
-                            isNeedLogout: true
-                        }
-                    });
+                    redirectToLogin();
                 }
+
+                return false;
             }
         };
 
-        const getMe = async () => {
+        const getMe = async (): Promise<boolean> => {
             try {
                 user = await authProvider.getMe();
                 setUser(user);
+                return true;
             } catch (e) {
                 if (e instanceof AxiosError && e.response?.status === 401) {
-                    navigate("/login", {
-                        state: {
-                            isNeedLogout: true
-                        }
-                    });
+                    redirectToLogin();
                 }
+
+                return false;
             }
         };
 
@@ -153,8 +165,11 @@ const App: React.FC = () => {
             }
         };
 
-        await getCookie();
-        await getMe();
+        if (!(await getCookie()) || !(await getMe())) {
+            setIsLoading(false);
+            return;
+        }
+
         await listMerchants();
         await listMerchant();
         setIsLoading(false);
@@ -169,6 +184,24 @@ const App: React.FC = () => {
             loadUserInfo();
         }
     }, [state]);
+
+    React.useEffect(() => {
+        const handleUnauthorized = () => {
+            setUser(undefined);
+            setMerchantId(null);
+            setIsLoading(false);
+            navigate("/login", {
+                replace: true,
+                state: {
+                    isNeedLogout: true
+                }
+            });
+        };
+
+        window.addEventListener(DASHBOARD_UNAUTHORIZED_EVENT, handleUnauthorized);
+
+        return () => window.removeEventListener(DASHBOARD_UNAUTHORIZED_EVENT, handleUnauthorized);
+    }, [navigate, setMerchantId]);
 
     React.useEffect(() => {
         if (user && isPosthogActive) {
@@ -380,15 +413,17 @@ const App: React.FC = () => {
                             layout="mix"
                         >
                             {notificationElement}
-                            <Routes>
-                                <Route path="settings" element={<SettingsPage />} />
-                                <Route path="payments" element={<PaymentsPage />} />
-                                <Route path="payment-links" element={<PaymentLinksPage />} />
-                                <Route path="manage-merchants" element={<ManageMerchantsPage />} />
-                                <Route path="balance" element={<BalancePage />} />
-                                <Route path="customers" element={<CustomersPage />} />
-                                <Route path="*" element={"not found"} />
-                            </Routes>
+                            {!isLoading ? (
+                                <Routes>
+                                    <Route path="settings" element={<SettingsPage />} />
+                                    <Route path="payments" element={<PaymentsPage />} />
+                                    <Route path="payment-links" element={<PaymentLinksPage />} />
+                                    <Route path="manage-merchants" element={<ManageMerchantsPage />} />
+                                    <Route path="balance" element={<BalancePage />} />
+                                    <Route path="customers" element={<CustomersPage />} />
+                                    <Route path="*" element={"not found"} />
+                                </Routes>
+                            ) : null}
                         </ProLayout>
                         <DrawerForm
                             title="Contact us"

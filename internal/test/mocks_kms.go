@@ -132,6 +132,35 @@ func (i *IntegrationTest) SetupCreateBSCTransactionWildcard(rawTx string) {
 	i.Providers.KMS.On("CreateBSCTransaction", mock.Anything).Return(res, nil)
 }
 
+func (i *IntegrationTest) SetupCreateBitcoinTransaction(
+	walletID uuid.UUID,
+	input kmsmodel.CreateBitcoinTransactionRequest,
+	rawTx string,
+) {
+	req := &kmswallet.CreateBitcoinTransactionParams{
+		Data:     &input,
+		WalletID: walletID.String(),
+	}
+
+	res := &kmswallet.CreateBitcoinTransactionCreated{
+		Payload: &kmsmodel.BitcoinTransaction{
+			RawTransaction: rawTx,
+		},
+	}
+
+	i.Providers.KMS.On("CreateBitcoinTransaction", req).Return(res, nil)
+}
+
+func (i *IntegrationTest) SetupCreateBitcoinTransactionWildcard(rawTx string) {
+	res := &kmswallet.CreateBitcoinTransactionCreated{
+		Payload: &kmsmodel.BitcoinTransaction{
+			RawTransaction: rawTx,
+		},
+	}
+
+	i.Providers.KMS.On("CreateBitcoinTransaction", mock.Anything).Return(res, nil)
+}
+
 func (i *IntegrationTest) SetupCreateTronTransaction(
 	walletID uuid.UUID,
 	input kmsmodel.CreateTronTransactionRequest,

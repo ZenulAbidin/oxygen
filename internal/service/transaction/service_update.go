@@ -27,10 +27,6 @@ func (u ReceiveTransaction) validate() error {
 		return errors.Wrapf(ErrInvalidUpdateParams, "unsupported update status %q", u.Status)
 	}
 
-	if u.SenderAddress == "" {
-		return errors.Wrap(ErrInvalidUpdateParams, "senderAddress is empty")
-	}
-
 	if u.TransactionHash == "" {
 		return errors.Wrap(ErrInvalidUpdateParams, "transactionHash is empty")
 	}
@@ -140,10 +136,6 @@ func (c *ConfirmTransaction) AllowZeroNetworkFee() {
 func (c *ConfirmTransaction) validate() error {
 	if c.Status != StatusCompleted && c.Status != StatusCompletedInvalid {
 		return errors.Wrapf(ErrInvalidUpdateParams, "unsupported update status %q", c.Status)
-	}
-
-	if c.SenderAddress == "" {
-		return errors.Wrap(ErrInvalidUpdateParams, "senderAddress is empty")
 	}
 
 	if c.TransactionHash == "" {
@@ -299,20 +291,6 @@ func (s *Service) updateBalancesAfterTxConfirmation(
 		return comment, metaData, nil
 	}
 
-	networkCurrency := func() (money.CryptoCurrency, error) {
-		currency := tx.Currency
-		if tx.Currency.Type == money.Token {
-			cur, err := s.blockchain.GetNativeCoin(tx.Currency.Blockchain)
-			if err != nil {
-				return money.CryptoCurrency{}, errors.Wrap(err, "unable to get currency for fees")
-			}
-
-			currency = cur
-		}
-
-		return currency, nil
-	}
-
 	if tx.Type == TypeIncoming {
 		// Increment wallet's balance
 		comment, metaData, err := incrementRecipientBalance(ctx)
@@ -375,7 +353,7 @@ func (s *Service) updateBalancesAfterTxConfirmation(
 			return err
 		}
 
-		currency, err := networkCurrency()
+		currency, err := s.networkCurrencyForBalanceUpdate(tx)
 		if err != nil {
 			return err
 		}
@@ -408,7 +386,7 @@ func (s *Service) updateBalancesAfterTxConfirmation(
 			return errors.New("sender wallet id is nil")
 		}
 
-		currency, err := networkCurrency()
+		currency, err := s.networkCurrencyForBalanceUpdate(tx)
 		if err != nil {
 			return err
 		}

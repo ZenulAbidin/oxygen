@@ -27,6 +27,18 @@ type Currency = typeof CURRENCY[number];
 type PaymentStatus = "pending" | "inProgress" | "success" | "failed";
 type PaymentAction = "redirect" | "showMessage";
 
+interface ObservedPaymentTransaction {
+    transactionHash: string;
+    senderAddress?: string;
+    amount: string;
+    amountFormatted: string;
+    confirmations: number;
+    requiredConfirmations: number;
+    isConfirmed: boolean;
+    isMempool: boolean;
+    explorerLink?: string;
+}
+
 interface PaymentInfo {
     amount: string;
     amountFormatted: string;
@@ -38,6 +50,7 @@ interface PaymentInfo {
     successAction?: PaymentAction;
     successMessage?: string;
     paymentLink: string;
+    observedTransaction?: ObservedPaymentTransaction;
 }
 
 interface Payment {
@@ -59,4 +72,4 @@ interface PaymentLink {
     price: number;
 }
 
-export type {CurrencyConvertResult, PaymentMethod, Payment, Customer, PaymentLink};
+export type {CurrencyConvertResult, PaymentMethod, Payment, Customer, PaymentLink, ObservedPaymentTransaction};

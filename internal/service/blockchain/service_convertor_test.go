@@ -3,10 +3,12 @@ package blockchain_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/oxygenpay/oxygen/internal/money"
+	tatumprovider "github.com/oxygenpay/oxygen/internal/provider/tatum"
 	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/test"
 	"github.com/rs/zerolog"
@@ -176,6 +178,25 @@ func TestConvertor(t *testing.T) {
 	})
 }
 
+func TestConvertorFallsBackToLocalRatesWithoutTatumCredentials(t *testing.T) {
+	ctx := context.Background()
+	conv := newLocalFallbackConvertor()
+	btc := lo.Must(conv.GetCurrencyByTicker("BTC"))
+
+	cryptoToFiat, err := conv.GetExchangeRate(ctx, "BTC", "USD")
+	require.NoError(t, err)
+	assert.Equal(t, "BTC", cryptoToFiat.From)
+	assert.Equal(t, "USD", cryptoToFiat.To)
+	assert.Equal(t, float64(65000), cryptoToFiat.Rate)
+
+	fiatToCrypto, err := conv.FiatToCrypto(ctx, lo.Must(money.USD.MakeAmount("130_00")), btc)
+	require.NoError(t, err)
+	assert.InEpsilon(t, 1.0/65000, fiatToCrypto.Rate, 0.000001)
+	rawBTC, err := strconv.ParseInt(fiatToCrypto.To.StringRaw(), 10, 64)
+	require.NoError(t, err)
+	assert.InDelta(t, int64(200000), rawBTC, 1)
+}
+
 func newConvertor(enableCache bool) (*blockchain.Service, *test.TatumMock) {
 	currencies := blockchain.NewCurrencies()
 	if err := blockchain.DefaultSetup(currencies); err != nil {
@@ -193,4 +214,24 @@ func newConvertor(enableCache bool) (*blockchain.Service, *test.TatumMock) {
 	)
 
 	return bc, mock
+}
+
+func newLocalFallbackConvertor() *blockchain.Service {
+	currencies := blockchain.NewCurrencies()
+	if err := blockchain.DefaultSetup(currencies); err != nil {
+		panic(err.Error())
+	}
+
+	logger := zerolog.Nop()
+	tatumAPI := tatumprovider.New(tatumprovider.Config{
+		APIKey:     "<tatum-api-key>",
+		TestAPIKey: "<tatum-test-api-key>",
+	}, nil, &logger)
+
+	return blockchain.New(
+		currencies,
+		blockchain.Providers{Tatum: tatumAPI},
+		false,
+		&logger,
+	)
 }
