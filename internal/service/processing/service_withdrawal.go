@@ -728,8 +728,10 @@ func (s *Service) confirmWithdrawal(
 	s.logger.Info().Int64("transaction_id", tx.ID).Msg("confirming withdrawal")
 
 	// 1. Confirm nonce
-	if err := s.wallets.IncrementConfirmedTransaction(ctx, *tx.SenderWalletID, tx.IsTest); err != nil {
-		return errors.Wrap(err, "unable to confirm nonce")
+	if !isUTXOBlockchain(tx.Currency.Blockchain) {
+		if err := s.wallets.IncrementConfirmedTransaction(ctx, *tx.SenderWalletID, tx.IsTest); err != nil {
+			return errors.Wrap(err, "unable to confirm nonce")
+		}
 	}
 
 	// 2. Mark tx as completed
@@ -769,8 +771,10 @@ func (s *Service) cancelWithdrawal(
 		Msg("canceling withdrawal")
 
 	// 1. Confirm nonce
-	if err := s.wallets.IncrementConfirmedTransaction(ctx, *tx.SenderWalletID, tx.IsTest); err != nil {
-		return errors.Wrap(err, "unable to confirm nonce")
+	if !isUTXOBlockchain(tx.Currency.Blockchain) {
+		if err := s.wallets.IncrementConfirmedTransaction(ctx, *tx.SenderWalletID, tx.IsTest); err != nil {
+			return errors.Wrap(err, "unable to confirm nonce")
+		}
 	}
 
 	// 2. Mark tx as failed

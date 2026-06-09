@@ -656,6 +656,9 @@ func TestService_BatchCheckInternalTransfers(t *testing.T) {
 	bnb := tc.Must.GetCurrency(t, "BNB")
 	bnbNetworkFee := lo.Must(bnb.MakeAmount("2000"))
 
+	btc := tc.Must.GetCurrency(t, "BTC")
+	btcNetworkFee := lo.Must(btc.MakeAmount("82"))
+
 	createTransfer := func(
 		sender, recipient *wallet.Wallet,
 		senderBalance *wallet.Balance,
@@ -1044,6 +1047,91 @@ func TestService_BatchCheckInternalTransfers(t *testing.T) {
 		balanceIn, err = tc.Services.Wallet.GetBalanceByUUID(ctx, wallet.EntityTypeWallet, wtIn.ID, balanceIn.UUID)
 		require.NoError(t, err)
 		assert.Equal(t, "199998000", balanceIn.Amount.StringRaw())
+
+		// Check that recipient balance equals to $amount
+		balanceOut, err = tc.Services.Wallet.GetBalanceByUUID(ctx, wallet.EntityTypeWallet, wtOut.ID, balanceOut.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, amount.StringRaw(), balanceOut.Amount.StringRaw())
+	})
+
+	t.Run("Confirms BTC transfer without nonce counter", func(t *testing.T) {
+		// ARRANGE
+		tc.Clear.Wallets(t)
+		isTest := false
+
+		// Given INBOUND wallet with BTC balance
+		withBTC1 := test.WithBalanceFromCurrency(btc, "1538", isTest)
+		wtIn, balanceIn := tc.Must.CreateWalletWithBalance(t, btc.Ticker, wallet.TypeInbound, withBTC1)
+
+		// And OUTBOUND wallet with zero balance
+		withBTC2 := test.WithBalanceFromCurrency(btc, "0", isTest)
+		wtOut, balanceOut := tc.Must.CreateWalletWithBalance(t, btc.Ticker, wallet.TypeOutbound, withBTC2)
+
+		// And created internal transfer without incrementing pending nonce
+		amount := money.MustCryptoFromRaw(btc.Ticker, "1456", btc.Decimals)
+		usdAmount, err := money.FiatFromFloat64(money.USD, 1)
+		require.NoError(t, err)
+
+		tx, err := tc.Services.Transaction.Create(ctx, 0, transaction.CreateTransaction{
+			Type:            transaction.TypeInternal,
+			SenderWallet:    wtIn,
+			RecipientWallet: wtOut,
+			Currency:        btc,
+			Amount:          amount,
+			USDAmount:       usdAmount,
+			IsTest:          isTest,
+		})
+		require.NoError(t, err)
+
+		balanceIn, err = tc.Services.Wallet.UpdateBalanceByID(ctx, balanceIn.ID, wallet.UpdateBalanceByIDQuery{
+			Operation: wallet.OperationDecrement,
+			Amount:    amount,
+		})
+		require.NoError(t, err)
+
+		txHash := fmt.Sprintf("btc-tx-%d", tx.ID)
+		err = tc.Services.Transaction.UpdateTransactionHash(ctx, transaction.SystemMerchantID, tx.ID, txHash)
+		require.NoError(t, err)
+
+		tx.HashID = &txHash
+
+		// And mocked network fee
+		receipt := &blockchain.TransactionReceipt{
+			Blockchain:    btc.Blockchain,
+			IsTest:        tx.IsTest,
+			Sender:        wtIn.Address,
+			Recipient:     wtOut.Address,
+			Hash:          *tx.HashID,
+			NetworkFee:    btcNetworkFee,
+			Success:       true,
+			Confirmations: 6,
+			IsConfirmed:   true,
+		}
+
+		tc.Fakes.SetupGetTransactionReceipt(btc.Blockchain, *tx.HashID, tx.IsTest, receipt, nil)
+
+		// ACT
+		err = tc.Services.Processing.BatchCheckInternalTransfers(ctx, []int64{tx.ID})
+
+		// ASSERT
+		assert.NoError(t, err)
+
+		// Check that tx is successful
+		tx, err = tc.Services.Transaction.GetByID(ctx, 0, tx.ID)
+		require.NoError(t, err)
+
+		assert.Equal(t, transaction.TypeInternal, tx.Type)
+		assert.Equal(t, transaction.StatusCompleted, tx.Status)
+		assert.Equal(t, amount, tx.Amount)
+		assert.Equal(t, amount, *tx.FactAmount)
+		assert.Equal(t, btcNetworkFee, *tx.NetworkFee)
+		assert.Equal(t, wtIn.ID, *tx.SenderWalletID)
+		assert.Equal(t, wtOut.ID, *tx.RecipientWalletID)
+
+		// Check that sender balance equals to 1538 - 1456 - network fee (82)
+		balanceIn, err = tc.Services.Wallet.GetBalanceByUUID(ctx, wallet.EntityTypeWallet, wtIn.ID, balanceIn.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, "0", balanceIn.Amount.StringRaw())
 
 		// Check that recipient balance equals to $amount
 		balanceOut, err = tc.Services.Wallet.GetBalanceByUUID(ctx, wallet.EntityTypeWallet, wtOut.ID, balanceOut.UUID)

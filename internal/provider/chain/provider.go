@@ -235,9 +235,51 @@ func (p *Provider) UTXOTipHeight(ctx context.Context, blockchain kms.Blockchain,
 }
 
 func (p *Provider) UTXOFeeEstimates(ctx context.Context, blockchain kms.Blockchain, isTest bool) (map[string]float64, error) {
-	var out map[string]float64
-	if err := p.getJSONFromURLs(ctx, p.utxoURLs(blockchain, "/fee-estimates", isTest), &out); err != nil {
+	var (
+		out     = make(map[string]float64)
+		lastErr error
+	)
+
+	for _, url := range p.utxoURLs(blockchain, "/fee-estimates", isTest) {
+		raw, err := p.getRaw(ctx, url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		estimates, err := parseUTXOFeeEstimates(raw)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		for target, feeRate := range estimates {
+			if current, ok := out[target]; !ok || feeRate < current {
+				out[target] = feeRate
+			}
+		}
+	}
+
+	if len(out) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+
+	return out, nil
+}
+
+func parseUTXOFeeEstimates(raw []byte) (map[string]float64, error) {
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &response); err != nil {
 		return nil, err
+	}
+
+	out := make(map[string]float64, len(response))
+	for target, rawEstimate := range response {
+		var feeRate float64
+		if err := json.Unmarshal(rawEstimate, &feeRate); err != nil {
+			continue
+		}
+		out[target] = feeRate
 	}
 
 	return out, nil

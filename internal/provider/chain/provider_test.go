@@ -100,7 +100,7 @@ func TestUTXOFeeEstimates(t *testing.T) {
 	explorer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/fee-estimates", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"1":1.5,"144":0.1}`))
+		_, _ = w.Write([]byte(`{"1":1.5,"144":0.1,"warning":"deprecated endpoint"}`))
 	}))
 	defer explorer.Close()
 
@@ -116,4 +116,33 @@ func TestUTXOFeeEstimates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1.5, estimates["1"])
 	assert.Equal(t, 0.1, estimates["144"])
+}
+
+func TestUTXOFeeEstimatesMergesLowerFallbackEstimates(t *testing.T) {
+	logger := zerolog.New(io.Discard)
+
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/fee-estimates", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"1":2.5,"1008":0.747}`))
+	}))
+	defer primary.Close()
+
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/fee-estimates", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"1":1.1,"1008":0.1,"warning":"deprecated endpoint"}`))
+	}))
+	defer fallback.Close()
+
+	provider := New(Config{
+		BitcoinMainnetExplorerURL:  primary.URL,
+		BitcoinMainnetFallbackURLs: []string{fallback.URL},
+	}, &logger)
+
+	estimates, err := provider.UTXOFeeEstimates(context.Background(), kms.BTC, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1.1, estimates["1"])
+	assert.Equal(t, 0.1, estimates["1008"])
 }

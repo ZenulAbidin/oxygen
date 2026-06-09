@@ -487,8 +487,10 @@ func (s *Service) confirmInternalTransfer(
 	}
 
 	// 1. Confirm wallet's nonce
-	if err = s.wallets.IncrementConfirmedTransaction(ctx, senderWallet.ID, tx.IsTest); err != nil {
-		return errors.Wrap(err, "unable to confirm wallet's nonce")
+	if !isUTXOBlockchain(tx.Currency.Blockchain) {
+		if err = s.wallets.IncrementConfirmedTransaction(ctx, senderWallet.ID, tx.IsTest); err != nil {
+			return errors.Wrap(err, "unable to confirm wallet's nonce")
+		}
 	}
 
 	// 2. Confirm transaction
@@ -531,8 +533,10 @@ func (s *Service) cancelInternalTransfer(
 		Msg("canceling internal transfer")
 
 	// 1. Confirm nonce
-	if err := s.wallets.IncrementConfirmedTransaction(ctx, *tx.SenderWalletID, tx.IsTest); err != nil {
-		return errors.Wrap(err, "unable to confirm nonce")
+	if !isUTXOBlockchain(tx.Currency.Blockchain) {
+		if err := s.wallets.IncrementConfirmedTransaction(ctx, *tx.SenderWalletID, tx.IsTest); err != nil {
+			return errors.Wrap(err, "unable to confirm nonce")
+		}
 	}
 
 	// 2. Mark tx as failed

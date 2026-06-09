@@ -895,6 +895,7 @@ func TestService_BatchCheckWithdrawals(t *testing.T) {
 	eth := tc.Must.GetCurrency(t, "ETH")
 	ethUSDT := tc.Must.GetCurrency(t, "ETH_USDT")
 	bnb := tc.Must.GetCurrency(t, "BNB")
+	btc := tc.Must.GetCurrency(t, "BTC")
 
 	// Mock tx fees
 	tc.Fakes.SetupAllFees(t, tc.Services.Blockchain)
@@ -1236,6 +1237,103 @@ func TestService_BatchCheckWithdrawals(t *testing.T) {
 		assert.Equal(t, tx.ID, related.Transaction.ID)
 		assert.Equal(t, merchantBalance.ID, related.Balance.ID)
 		assert.Equal(t, addr.ID, related.Address.ID)
+	})
+
+	t.Run("Confirms BTC transaction without nonce counter", func(t *testing.T) {
+		tc.Clear.Wallets(t)
+		isTest := false
+
+		// ARRANGE
+		// Given merchant
+		mt, _ := tc.Must.CreateMerchant(t, 1)
+
+		// And withdrawal payment
+		amount := lo.Must(btc.MakeAmount("1456"))
+		withdrawalEntry, err := tc.Repository.CreatePayment(ctx, repository.CreatePaymentParams{
+			PublicID:          uuid.New(),
+			CreatedAt:         time.Now(),
+			UpdatedAt:         time.Now(),
+			Type:              string(payment.TypeWithdrawal),
+			Status:            string(payment.StatusInProgress),
+			MerchantID:        mt.ID,
+			MerchantOrderUuid: uuid.New(),
+			Price:             repository.MoneyToNumeric(amount),
+			Decimals:          int32(amount.Decimals()),
+			Currency:          amount.Ticker(),
+			Metadata:          payment.Metadata{}.ToJSONB(),
+			IsTest:            isTest,
+		})
+		require.NoError(t, err)
+
+		withdrawal, err := tc.Services.Payment.GetByID(ctx, mt.ID, withdrawalEntry.ID)
+		require.NoError(t, err)
+
+		// And OUTBOUND wallet with BTC balance
+		withBTC := test.WithBalanceFromCurrency(btc, "1538", isTest)
+		outboundWallet, outboundBalance := tc.Must.CreateWalletWithBalance(t, btc.Ticker, wallet.TypeOutbound, withBTC)
+
+		usdAmount, err := money.FiatFromFloat64(money.USD, 1)
+		require.NoError(t, err)
+
+		tx, err := tc.Services.Transaction.Create(ctx, mt.ID, transaction.CreateTransaction{
+			Type:             transaction.TypeWithdrawal,
+			EntityID:         withdrawal.ID,
+			SenderWallet:     outboundWallet,
+			RecipientAddress: "bc1qtestwithdrawalrecipient",
+			Currency:         btc,
+			Amount:           amount,
+			USDAmount:        usdAmount,
+			IsTest:           isTest,
+		})
+		require.NoError(t, err)
+
+		outboundBalance, err = tc.Services.Wallet.UpdateBalanceByID(ctx, outboundBalance.ID, wallet.UpdateBalanceByIDQuery{
+			Operation: wallet.OperationDecrement,
+			Amount:    amount,
+		})
+		require.NoError(t, err)
+
+		txHashID := "btc-withdrawal-tx"
+		err = tc.Services.Transaction.UpdateTransactionHash(ctx, mt.ID, tx.ID, txHashID)
+		require.NoError(t, err)
+
+		networkFee := lo.Must(btc.MakeAmount("82"))
+		receipt := &blockchain.TransactionReceipt{
+			Blockchain:    btc.Blockchain,
+			IsTest:        isTest,
+			Sender:        outboundWallet.Address,
+			Recipient:     "bc1qtestwithdrawalrecipient",
+			Hash:          txHashID,
+			NetworkFee:    networkFee,
+			Success:       true,
+			Confirmations: 6,
+			IsConfirmed:   true,
+		}
+
+		tc.Fakes.SetupGetTransactionReceipt(btc.Blockchain, txHashID, isTest, receipt, nil)
+
+		// ACT
+		err = tc.Services.Processing.BatchCheckWithdrawals(ctx, []int64{tx.ID})
+
+		// ASSERT
+		assert.NoError(t, err)
+
+		tx, err = tc.Services.Transaction.GetByID(ctx, mt.ID, tx.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, transaction.StatusCompleted, tx.Status)
+		assert.Equal(t, networkFee, *tx.NetworkFee)
+
+		outboundWallet, err = tc.Services.Wallet.GetByID(ctx, outboundWallet.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), outboundWallet.PendingMainnetTransactions)
+
+		outboundBalance, err = tc.Services.Wallet.GetBalanceByID(ctx, wallet.EntityTypeWallet, outboundWallet.ID, outboundBalance.ID)
+		assert.NoError(t, err)
+		assert.Equal(t, "0", outboundBalance.Amount.StringRaw())
+
+		withdrawal, err = tc.Services.Payment.GetByPublicID(ctx, withdrawal.PublicID)
+		assert.NoError(t, err)
+		assert.Equal(t, payment.StatusSuccess, withdrawal.Status)
 	})
 
 	t.Run("Transaction is not confirmed yet", func(t *testing.T) {
