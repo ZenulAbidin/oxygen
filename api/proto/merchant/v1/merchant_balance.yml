@@ -38,9 +38,9 @@ definitions:
         x-omitempty: false
       minimalWithdrawalAmountUSD:
         type: string
-        description: Minimal withdrawal amount in USD
+        description: Deprecated static minimum withdrawal amount in USD. Use withdrawal-fee.minimumAmount for the per-balance runtime minimum.
         x-omitempty: false
-        example: '50'
+        example: '0'
       name:
         type: string
         description: Balance name

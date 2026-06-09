@@ -42,7 +42,7 @@ func (h *Handler) balanceToResponse(ctx context.Context, b *wallet.Balance) *mod
 			Ticker:                     b.Currency,
 			Amount:                     b.Amount.String(),
 			UsdAmount:                  "",
-			MinimalWithdrawalAmountUSD: "",
+			MinimalWithdrawalAmountUSD: "0",
 		}
 	}
 
@@ -67,7 +67,7 @@ func (h *Handler) balanceToResponse(ctx context.Context, b *wallet.Balance) *mod
 		Ticker:                     currency.Ticker,
 		Amount:                     b.Amount.String(),
 		UsdAmount:                  usdAmount,
-		MinimalWithdrawalAmountUSD: "",
+		MinimalWithdrawalAmountUSD: "0",
 	}
 }
 

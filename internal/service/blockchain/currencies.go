@@ -407,6 +407,9 @@ func parseUSD(raw string) (money.Money, error) {
 	if err != nil {
 		return money.Money{}, errors.Wrap(ErrParseMoney, raw)
 	}
+	if f == 0 {
+		return money.USD.MakeAmount("0")
+	}
 
 	return money.FiatFromFloat64(money.USD, f)
 }

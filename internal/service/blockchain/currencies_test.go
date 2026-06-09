@@ -40,7 +40,7 @@ func TestDefaultSetupIncludesBitcoin(t *testing.T) {
 
 	minWithdrawal, err := currencies.GetMinimalWithdrawalByTicker("BTC")
 	require.NoError(t, err)
-	assert.Equal(t, "4000", minWithdrawal.StringRaw())
+	assert.Equal(t, "0", minWithdrawal.StringRaw())
 }
 
 func TestDefaultSetupIncludesLitecoin(t *testing.T) {
@@ -66,7 +66,7 @@ func TestDefaultSetupIncludesLitecoin(t *testing.T) {
 
 	minWithdrawal, err := currencies.GetMinimalWithdrawalByTicker("LTC")
 	require.NoError(t, err)
-	assert.Equal(t, "4000", minWithdrawal.StringRaw())
+	assert.Equal(t, "0", minWithdrawal.StringRaw())
 }
 
 func TestCreatePaymentLink(t *testing.T) {

@@ -40,8 +40,8 @@ type MerchantBalance struct {
 	// Indicates whether balance is test or not
 	IsTest bool `json:"isTest"`
 
-	// Minimal withdrawal amount in USD
-	// Example: 50
+	// Deprecated static minimum withdrawal amount in USD. Use withdrawal-fee.minimumAmount for the per-balance runtime minimum.
+	// Example: 0
 	MinimalWithdrawalAmountUSD string `json:"minimalWithdrawalAmountUSD"`
 
 	// Balance name

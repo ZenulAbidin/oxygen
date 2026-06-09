@@ -100,7 +100,7 @@ func TestBalanceToResponse_FallsBackForUnsupportedCurrency(t *testing.T) {
 	assert.Equal(t, "BTC", response.Ticker)
 	assert.Equal(t, "0.5", response.Amount)
 	assert.Equal(t, "", response.UsdAmount)
-	assert.Equal(t, "", response.MinimalWithdrawalAmountUSD)
+	assert.Equal(t, "0", response.MinimalWithdrawalAmountUSD)
 	assert.False(t, response.IsTest)
 }
 
@@ -145,7 +145,7 @@ func TestBalanceToResponse_UsesResolvedCurrencyAndBestEffortUSD(t *testing.T) {
 	assert.Equal(t, "ETH", response.Ticker)
 	assert.Equal(t, "0.5", response.Amount)
 	assert.Equal(t, "900", response.UsdAmount)
-	assert.Equal(t, "", response.MinimalWithdrawalAmountUSD)
+	assert.Equal(t, "0", response.MinimalWithdrawalAmountUSD)
 	assert.False(t, response.IsTest)
 
 	stub := handler.blockchain.(*balanceBlockchainStub)
