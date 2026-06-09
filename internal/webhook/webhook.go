@@ -17,6 +17,8 @@ import (
 const (
 	Timeout         = time.Second * 5
 	HeaderSignature = "X-Signature"
+	HeaderEventID   = "X-Webhook-Id"
+	HeaderEventType = "X-Webhook-Event"
 )
 
 var client = http.DefaultClient
@@ -25,6 +27,11 @@ var (
 	ErrInvalidInput      = errors.New("invalid input")
 	ErrInvalidStatusCode = errors.New("invalid status code")
 )
+
+type MetadataProvider interface {
+	WebhookEventID() string
+	WebhookEventType() string
+}
 
 func Send(ctx context.Context, destination, secret string, data any) error {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
@@ -45,6 +52,10 @@ func Send(ctx context.Context, destination, secret string, data any) error {
 	}
 
 	req.Header.Set("content-type", "application/json")
+	if meta, ok := data.(MetadataProvider); ok {
+		req.Header.Set(HeaderEventID, meta.WebhookEventID())
+		req.Header.Set(HeaderEventType, meta.WebhookEventType())
+	}
 	if errSign := SignRequest(req, body, secret); errSign != nil {
 		return errors.Wrap(ErrInvalidInput, errSign.Error())
 	}
@@ -70,6 +81,9 @@ func validateURL(u string) error {
 
 	if parsed.Hostname() == "" {
 		return errors.New("invalid hostname")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("scheme should be http or https")
 	}
 
 	return nil
@@ -98,5 +112,5 @@ func ValidateHMAC(body []byte, secret, signature string) bool {
 
 	expectedMAC := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	return expectedMAC == signature
+	return hmac.Equal([]byte(expectedMAC), []byte(signature))
 }

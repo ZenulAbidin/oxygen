@@ -48,6 +48,10 @@ func TestSend(t *testing.T) {
 		err := Send(ctx, "not a url", "", nil)
 		assert.ErrorIs(t, err, ErrInvalidInput)
 
+		// Unsupported URL scheme
+		err = Send(ctx, "ftp://example.com/webhook", "", nil)
+		assert.ErrorIs(t, err, ErrInvalidInput)
+
 		// Non 2xx response
 		s := assertServer(t, func(t *testing.T, writer http.ResponseWriter, request *http.Request) {
 			writer.WriteHeader(http.StatusInternalServerError)

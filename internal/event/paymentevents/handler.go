@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/oxygenpay/oxygen/internal/bus"
+	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/service/merchant"
 	"github.com/oxygenpay/oxygen/internal/service/payment"
 	"github.com/oxygenpay/oxygen/internal/service/processing"
+	"github.com/oxygenpay/oxygen/internal/service/transaction"
 	"github.com/oxygenpay/oxygen/internal/slack"
 	"github.com/oxygenpay/oxygen/internal/util"
 	"github.com/oxygenpay/oxygen/internal/webhook"
@@ -54,8 +56,14 @@ func (h *Handler) Consumers() map[bus.Topic][]bus.Consumer {
 }
 
 type PaymentWebhook struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	EventID   string `json:"eventId"`
+	EventType string `json:"eventType"`
+	Version   string `json:"version"`
+
+	ID      string  `json:"id"`
+	OrderID *string `json:"orderId,omitempty"`
+	Type    string  `json:"type"`
+	Status  string  `json:"status"`
 
 	CustomerEmail string `json:"customerEmail"`
 
@@ -65,6 +73,80 @@ type PaymentWebhook struct {
 	IsTest bool `json:"isTest"`
 
 	LinkID *string `json:"paymentLinkId"`
+
+	OccurredAt time.Time      `json:"occurredAt"`
+	Payment    WebhookPayment `json:"payment"`
+
+	Customer      *WebhookCustomer      `json:"customer,omitempty"`
+	PaymentMethod *WebhookPaymentMethod `json:"paymentMethod,omitempty"`
+	PaymentLink   *WebhookPaymentLink   `json:"paymentLink,omitempty"`
+	Transaction   *WebhookTransaction   `json:"transaction,omitempty"`
+}
+
+type WebhookPayment struct {
+	ID          string       `json:"id"`
+	PublicID    string       `json:"publicId"`
+	OrderID     *string      `json:"orderId,omitempty"`
+	Type        string       `json:"type"`
+	Status      string       `json:"status"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	UpdatedAt   time.Time    `json:"updatedAt"`
+	ExpiresAt   *time.Time   `json:"expiresAt,omitempty"`
+	Amount      WebhookMoney `json:"amount"`
+	RedirectURL string       `json:"redirectUrl,omitempty"`
+	PaymentURL  string       `json:"paymentUrl,omitempty"`
+	Description *string      `json:"description,omitempty"`
+	IsTest      bool         `json:"isTest"`
+}
+
+type WebhookCustomer struct {
+	Email string `json:"email"`
+}
+
+type WebhookPaymentMethod struct {
+	Blockchain     string `json:"blockchain"`
+	BlockchainName string `json:"blockchainName"`
+	Currency       string `json:"currency"`
+	Name           string `json:"name"`
+	DisplayName    string `json:"displayName"`
+	NetworkID      string `json:"networkId"`
+	IsTest         bool   `json:"isTest"`
+}
+
+type WebhookPaymentLink struct {
+	ID string `json:"id"`
+}
+
+type WebhookTransaction struct {
+	Type             string        `json:"type"`
+	Status           string        `json:"status"`
+	Hash             *string       `json:"hash,omitempty"`
+	ExplorerLink     *string       `json:"explorerLink,omitempty"`
+	NetworkID        string        `json:"networkId"`
+	SenderAddress    *string       `json:"senderAddress,omitempty"`
+	RecipientAddress string        `json:"recipientAddress"`
+	Amount           WebhookMoney  `json:"amount"`
+	FactAmount       *WebhookMoney `json:"factAmount,omitempty"`
+	ServiceFee       WebhookMoney  `json:"serviceFee"`
+	NetworkFee       *WebhookMoney `json:"networkFee,omitempty"`
+	CreatedAt        time.Time     `json:"createdAt"`
+	UpdatedAt        time.Time     `json:"updatedAt"`
+	IsTest           bool          `json:"isTest"`
+}
+
+type WebhookMoney struct {
+	Value    string `json:"value"`
+	Raw      string `json:"raw"`
+	Currency string `json:"currency"`
+	Decimals int64  `json:"decimals"`
+}
+
+func (w PaymentWebhook) WebhookEventID() string {
+	return w.EventID
+}
+
+func (w PaymentWebhook) WebhookEventType() string {
+	return w.EventType
 }
 
 func (h *Handler) ProcessPaymentStatusUpdate(ctx context.Context, message bus.Message) error {
@@ -99,25 +181,9 @@ func (h *Handler) ProcessPaymentStatusUpdate(ctx context.Context, message bus.Me
 		return nil
 	}
 
-	wh := PaymentWebhook{
-		ID:     p.Payment.MerchantOrderUUID.String(),
-		Status: p.Payment.Status.String(),
-		IsTest: p.Payment.IsTest,
-	}
-	if p.Customer != nil {
-		wh.CustomerEmail = p.Customer.Email
-	}
-	if p.PaymentMethod != nil {
-		wh.SelectedBlockchain = p.PaymentMethod.Currency.Blockchain.String()
-		wh.SelectedCurrency = p.PaymentMethod.Currency.Ticker
-	}
-	if p.Payment.LinkID() != 0 {
-		link, err := h.payments.GetPaymentLinkByID(ctx, mt.ID, p.Payment.LinkID())
-		if err != nil {
-			return errors.Wrap(err, "unable to get payment link")
-		}
-
-		wh.LinkID = util.Ptr(link.PublicID.String())
+	wh, err := h.buildPaymentWebhook(ctx, mt, p)
+	if err != nil {
+		return err
 	}
 
 	if err := webhook.Send(ctx, webhookURL, signatureSecret, wh); err != nil {
@@ -144,6 +210,121 @@ func (h *Handler) ProcessPaymentStatusUpdate(ctx context.Context, message bus.Me
 		Msg("sent webhook to merchant")
 
 	return nil
+}
+
+func (h *Handler) buildPaymentWebhook(
+	ctx context.Context,
+	mt *merchant.Merchant,
+	details *processing.DetailedPayment,
+) (PaymentWebhook, error) {
+	pt := details.Payment
+	wh := PaymentWebhook{
+		EventID:   paymentWebhookEventID(pt),
+		EventType: fmt.Sprintf("%s.status_changed", pt.Type),
+		Version:   "1",
+
+		ID:      pt.MerchantOrderUUID.String(),
+		OrderID: pt.MerchantOrderID,
+		Type:    pt.Type.String(),
+		Status:  pt.Status.String(),
+		IsTest:  pt.IsTest,
+
+		OccurredAt: pt.UpdatedAt,
+		Payment: WebhookPayment{
+			ID:          pt.MerchantOrderUUID.String(),
+			PublicID:    pt.PublicID.String(),
+			OrderID:     pt.MerchantOrderID,
+			Type:        pt.Type.String(),
+			Status:      pt.Status.String(),
+			CreatedAt:   pt.CreatedAt,
+			UpdatedAt:   pt.UpdatedAt,
+			ExpiresAt:   pt.ExpiresAt,
+			Amount:      moneyToWebhook(pt.Price),
+			RedirectURL: pt.RedirectURL,
+			PaymentURL:  pt.PaymentURL,
+			Description: pt.Description,
+			IsTest:      pt.IsTest,
+		},
+	}
+
+	if details.Customer != nil {
+		wh.CustomerEmail = details.Customer.Email
+		wh.Customer = &WebhookCustomer{Email: details.Customer.Email}
+	}
+
+	if details.PaymentMethod != nil {
+		currency := details.PaymentMethod.Currency
+		wh.SelectedBlockchain = currency.Blockchain.String()
+		wh.SelectedCurrency = currency.Ticker
+		wh.PaymentMethod = &WebhookPaymentMethod{
+			Blockchain:     currency.Blockchain.String(),
+			BlockchainName: currency.BlockchainName,
+			Currency:       currency.Ticker,
+			Name:           currency.Name,
+			DisplayName:    currency.DisplayName(),
+			NetworkID:      details.PaymentMethod.NetworkID,
+			IsTest:         details.PaymentMethod.IsTest,
+		}
+
+		if tx := details.PaymentMethod.TX(); tx != nil {
+			wh.Transaction = transactionToWebhook(tx)
+		}
+	}
+
+	if pt.LinkID() != 0 {
+		link, err := h.payments.GetPaymentLinkByID(ctx, mt.ID, pt.LinkID())
+		if err != nil {
+			return PaymentWebhook{}, errors.Wrap(err, "unable to get payment link")
+		}
+
+		wh.LinkID = util.Ptr(link.PublicID.String())
+		wh.PaymentLink = &WebhookPaymentLink{ID: link.PublicID.String()}
+	}
+
+	return wh, nil
+}
+
+func paymentWebhookEventID(pt *payment.Payment) string {
+	return fmt.Sprintf("%s:%s:%s", pt.Type.String(), pt.MerchantOrderUUID.String(), pt.Status.String())
+}
+
+func transactionToWebhook(tx *transaction.Transaction) *WebhookTransaction {
+	wh := &WebhookTransaction{
+		Type:             string(tx.Type),
+		Status:           string(tx.Status),
+		Hash:             tx.HashID,
+		NetworkID:        tx.NetworkID(),
+		SenderAddress:    tx.SenderAddress,
+		RecipientAddress: tx.RecipientAddress,
+		Amount:           moneyToWebhook(tx.Amount),
+		ServiceFee:       moneyToWebhook(tx.ServiceFee),
+		CreatedAt:        tx.CreatedAt,
+		UpdatedAt:        tx.UpdatedAt,
+		IsTest:           tx.IsTest,
+	}
+
+	if tx.FactAmount != nil {
+		amount := moneyToWebhook(*tx.FactAmount)
+		wh.FactAmount = &amount
+	}
+	if tx.NetworkFee != nil {
+		amount := moneyToWebhook(*tx.NetworkFee)
+		wh.NetworkFee = &amount
+	}
+	if link, err := tx.ExplorerLink(); err == nil && link != "" {
+		wh.ExplorerLink = &link
+	}
+
+	return wh
+}
+
+func moneyToWebhook(m money.Money) WebhookMoney {
+	return WebhookMoney{
+		Value:    m.String(),
+		Raw:      m.StringRaw(),
+		Currency: m.Ticker(),
+		Decimals: m.Decimals(),
+	}
 }
 
 func (h *Handler) ProcessWithdrawals(ctx context.Context, message bus.Message) error {

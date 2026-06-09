@@ -1,13 +1,13 @@
 import * as React from "react";
 import {Button, Space, Row, Typography, Dropdown, Table, Result, FormInstance} from "antd";
-import {DeleteOutlined, MoreOutlined} from "@ant-design/icons";
+import {DeleteOutlined, KeyOutlined, MoreOutlined, PlusOutlined} from "@ant-design/icons";
 import {ColumnsType} from "antd/es/table";
 import {MerchantToken, WebhookSettings} from "src/types";
 import useSharedMerchantId from "src/hooks/use-merchant-id";
 import useSharedMerchant from "src/hooks/use-merchant";
 import tokenQueries from "src/queries/token-quries";
 import DrawerForm from "src/components/drawer-form/drawer-form";
-import TokenCreateForm from "src/components/token-create-form/token-create-form";
+import TokenCreateForm, {TokenCreateFormFields} from "src/components/token-create-form/token-create-form";
 import merchantProvider from "src/providers/merchant-provider";
 import WebhookSettingsForm from "src/components/webhook-settings-form/webhook-settings-form";
 import {sleep} from "src/utils";
@@ -35,7 +35,7 @@ const ApiKeysSection: React.FC<Props> = (props: Props) => {
     const deleteSelectedToken = async (token: MerchantToken) => {
         try {
             await deleteToken.mutateAsync(token.id);
-            props.openPopupFunc("Token has deleted", `Token ${token.name} has been deleted`);
+            props.openPopupFunc("Token deleted", `Deleted API token ${token.name}`);
         } catch (error) {
             console.error("error occurred: ", error);
         }
@@ -100,20 +100,24 @@ const ApiKeysSection: React.FC<Props> = (props: Props) => {
 
     React.useEffect(() => {
         setTokens(listTokens.data || []);
-        getMerchant(merchantId!);
     }, [listTokens.data]);
 
     React.useEffect(() => {
+        if (!merchantId) {
+            setTokens([]);
+            return;
+        }
+
         listTokens.refetch();
-        getMerchant(merchantId!);
+        getMerchant(merchantId);
     }, [merchantId]);
 
-    const uploadCreatedToken = async (tokenName: string, form: FormInstance<MerchantToken>) => {
+    const uploadCreatedToken = async (tokenName: string, form: FormInstance<TokenCreateFormFields>) => {
         try {
             setIsFormSubmitting(true);
             await createToken.mutateAsync(tokenName);
             setIsCreatingTokenFormOpen(false);
-            props.openPopupFunc("Address has created", `You have created new address ${tokenName}`);
+            props.openPopupFunc("Token created", `Created API token ${tokenName}`);
 
             await sleep(1000);
             form.resetFields();
@@ -129,7 +133,7 @@ const ApiKeysSection: React.FC<Props> = (props: Props) => {
             setIsFormSubmitting(true);
             await merchantProvider.updateMerchantWebhookSettings(merchantId!, settings);
             setIsWebhookSettingsFormOpen(false);
-            props.openPopupFunc("Webhooks settings has updated", "You have updated webhook settings");
+            props.openPopupFunc("Webhook settings updated", "Updated webhook URL and signing secret");
 
             await sleep(1000);
             await getMerchant(merchantId!);
@@ -144,12 +148,22 @@ const ApiKeysSection: React.FC<Props> = (props: Props) => {
     return (
         <>
             <Row align="middle" justify="space-between">
-                <Typography.Title level={3}>API Tokens</Typography.Title>
+                <div>
+                    <Typography.Title level={3}>API tokens</Typography.Title>
+                    <Typography.Text type="secondary">
+                        Merchant API credentials for external applications.
+                    </Typography.Text>
+                </div>
                 <Space>
                     <Button onClick={() => setIsWebhookSettingsFormOpen(true)} style={{marginTop: 20}}>
-                        Manage webhooks settings
+                        Manage webhook settings
                     </Button>
-                    <Button type="primary" onClick={() => setIsCreatingTokenFormOpen(true)} style={{marginTop: 20}}>
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={() => setIsCreatingTokenFormOpen(true)}
+                        style={{marginTop: 20}}
+                    >
                         Create a token
                     </Button>
                 </Space>
@@ -164,9 +178,9 @@ const ApiKeysSection: React.FC<Props> = (props: Props) => {
                 locale={{
                     emptyText: (
                         <Result
-                            icon={null}
-                            title="Your tokens will be here"
-                            subTitle="To create an token, click to the button at the right top of the table"
+                            icon={<KeyOutlined />}
+                            title="No API tokens"
+                            subTitle="Create a token to connect an external application."
                         ></Result>
                     )
                 }}

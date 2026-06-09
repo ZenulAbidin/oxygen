@@ -1,22 +1,21 @@
 import * as React from "react";
 import {Form, Input, Button, Space, FormInstance} from "antd";
-import {MerchantToken} from "src/types";
 import {sleep} from "src/utils";
 
-interface Props {
-    onCancel: (value: boolean) => void;
-    onFinish: (values: string, form: FormInstance<MerchantToken>) => Promise<void>;
-    isFormSubmitting: boolean;
-}
-
-interface FormFields {
+export interface TokenCreateFormFields {
     name: string;
 }
 
-const TokenCreateForm: React.FC<Props> = (props: Props) => {
-    const [form] = Form.useForm<MerchantToken>();
+interface Props {
+    onCancel: (value: boolean) => void;
+    onFinish: (values: string, form: FormInstance<TokenCreateFormFields>) => Promise<void>;
+    isFormSubmitting: boolean;
+}
 
-    const onSubmit = async (values: FormFields) => {
+const TokenCreateForm: React.FC<Props> = (props: Props) => {
+    const [form] = Form.useForm<TokenCreateFormFields>();
+
+    const onSubmit = async (values: TokenCreateFormFields) => {
         await props.onFinish(values.name, form);
     };
 
@@ -28,7 +27,7 @@ const TokenCreateForm: React.FC<Props> = (props: Props) => {
     };
 
     return (
-        <Form<MerchantToken> form={form} onFinish={onSubmit} layout="vertical">
+        <Form<TokenCreateFormFields> form={form} onFinish={onSubmit} layout="vertical">
             <div>
                 <Form.Item
                     label="Token name"
@@ -36,7 +35,7 @@ const TokenCreateForm: React.FC<Props> = (props: Props) => {
                     rules={[{required: true, message: "Field is required"}]}
                     validateTrigger="onBlur"
                 >
-                    <Input style={{width: 300}} placeholder="My API token" />
+                    <Input style={{width: 300}} placeholder="Production integration" />
                 </Form.Item>
             </div>
             <Space>

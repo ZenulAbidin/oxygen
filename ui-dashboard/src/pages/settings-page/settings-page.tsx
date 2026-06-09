@@ -32,6 +32,7 @@ const SettingsPage: React.FC = () => {
             <WithdrawAddresses openPopupFunc={openNotification} />
             <Divider />
             <DevelopersSection openPopupFunc={openNotification} />
+            <Divider />
             <ApiKeysSection openPopupFunc={openNotification} />
         </PageContainer>
     );

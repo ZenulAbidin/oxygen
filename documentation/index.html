@@ -177,17 +177,45 @@ password: your-password-at-least-8-chars</code></pre>
         <section class="section" id="webhooks">
             <h2>Webhooks</h2>
             <p>
-                Webhooks are sent to the merchant backend when a payment changes state. Configure the URL and secret
-                from Dashboard, Settings, Developer Section.
+                Webhooks are sent to the merchant backend when a payment or withdrawal changes state. Configure the URL
+                and secret from Dashboard, Settings, Developer Section.
             </p>
             <pre><code>{
+  "eventId": "payment:59871f43-ec34-4966-8141-eacbcc184192:success",
+  "eventType": "payment.status_changed",
+  "version": "1",
   "id": "59871f43-ec34-4966-8141-eacbcc184192",
+  "type": "payment",
   "status": "success",
   "customerEmail": "satoshi@example.com",
   "selectedBlockchain": "ETH",
   "selectedCurrency": "ETH_USDT",
   "paymentLinkId": "1c9ecded-27bc-405d-bf66-85d2ad3bb228",
-  "isTest": false
+  "isTest": false,
+  "occurredAt": "2022-12-22T19:12:55.386201Z",
+  "payment": {
+    "id": "59871f43-ec34-4966-8141-eacbcc184192",
+    "publicId": "9d0a334f-af6d-4cbb-b0ca-118d3fb738bb",
+    "type": "payment",
+    "status": "success",
+    "amount": {"value": "29.9", "raw": "2990", "currency": "USD", "decimals": 2},
+    "paymentUrl": "https://pay.example.com/p/9d0a334f-af6d-4cbb-b0ca-118d3fb738bb",
+    "isTest": false
+  },
+  "paymentMethod": {
+    "blockchain": "ETH",
+    "currency": "ETH_USDT",
+    "displayName": "USDT (Ethereum)",
+    "networkId": "ethereum-mainnet",
+    "isTest": false
+  },
+  "transaction": {
+    "type": "incoming",
+    "status": "completed",
+    "hash": "0xdf147859a6e66961326ac91f4bd5e9980432040031e5eb7108603d51b81ae005",
+    "recipientAddress": "0xrecipient",
+    "amount": {"value": "29.9", "raw": "29900000", "currency": "ETH_USDT", "decimals": 6}
+  }
 }</code></pre>
             <div class="table-wrap">
                 <table>
@@ -215,7 +243,8 @@ password: your-password-at-least-8-chars</code></pre>
             </div>
             <p>
                 Signed webhooks include an <span class="inline-code">X-Signature</span> header containing an HMAC
-                signature. Verify it with the configured webhook secret before trusting the payload.
+                signature over the raw request body. Each request also includes <span class="inline-code">X-Webhook-Id</span>
+                and <span class="inline-code">X-Webhook-Event</span> headers for idempotency and routing.
             </p>
         </section>
 

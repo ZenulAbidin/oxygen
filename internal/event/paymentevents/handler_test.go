@@ -18,6 +18,7 @@ import (
 	"github.com/oxygenpay/oxygen/internal/service/wallet"
 	"github.com/oxygenpay/oxygen/internal/test"
 	"github.com/oxygenpay/oxygen/internal/util"
+	outboundwebhook "github.com/oxygenpay/oxygen/internal/webhook"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,10 +55,17 @@ func TestHandler_ProcessPaymentStatusUpdate(t *testing.T) {
 	// ARRANGE
 	// Given a mocked merchant server
 	var actualWebhook paymentevents.PaymentWebhook
+	var actualEventIDHeader string
+	var actualEventTypeHeader string
 	srv := assertServer(t, func(t *testing.T, writer http.ResponseWriter, request *http.Request) {
 		writer.WriteHeader(http.StatusOK)
 
-		assertBind(t, request, &actualWebhook)
+		raw, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(raw, &actualWebhook))
+		assert.True(t, outboundwebhook.ValidateHMAC(raw, "abc", request.Header.Get(outboundwebhook.HeaderSignature)))
+		actualEventIDHeader = request.Header.Get(outboundwebhook.HeaderEventID)
+		actualEventTypeHeader = request.Header.Get(outboundwebhook.HeaderEventType)
 	})
 
 	// And a merchant
@@ -111,17 +119,49 @@ func TestHandler_ProcessPaymentStatusUpdate(t *testing.T) {
 	assert.NoError(t, handler.SendSuccessfulPaymentNotification(tc.Context, msg))
 
 	// ASSERT
-	expectedWebhook := paymentevents.PaymentWebhook{
-		ID:                 p.MerchantOrderUUID.String(),
-		Status:             payment.StatusSuccess.String(),
-		CustomerEmail:      person.Email,
-		SelectedBlockchain: tx.Currency.Blockchain.String(),
-		SelectedCurrency:   tx.Currency.Ticker,
-		LinkID:             util.Ptr(link.PublicID.String()),
-		IsTest:             p.IsTest,
-	}
+	assert.NotEmpty(t, actualWebhook.EventID)
+	assert.Equal(t, actualWebhook.EventID, actualEventIDHeader)
+	assert.Equal(t, "payment.status_changed", actualWebhook.EventType)
+	assert.Equal(t, actualWebhook.EventType, actualEventTypeHeader)
+	assert.Equal(t, "1", actualWebhook.Version)
+	assert.NotZero(t, actualWebhook.OccurredAt)
 
-	assert.Equal(t, expectedWebhook, actualWebhook)
+	assert.Equal(t, p.MerchantOrderUUID.String(), actualWebhook.ID)
+	assert.Equal(t, payment.TypePayment.String(), actualWebhook.Type)
+	assert.Equal(t, payment.StatusSuccess.String(), actualWebhook.Status)
+	assert.Equal(t, person.Email, actualWebhook.CustomerEmail)
+	assert.Equal(t, tx.Currency.Blockchain.String(), actualWebhook.SelectedBlockchain)
+	assert.Equal(t, tx.Currency.Ticker, actualWebhook.SelectedCurrency)
+	assert.Equal(t, util.Ptr(link.PublicID.String()), actualWebhook.LinkID)
+	assert.Equal(t, p.IsTest, actualWebhook.IsTest)
+
+	assert.Equal(t, p.MerchantOrderUUID.String(), actualWebhook.Payment.ID)
+	assert.Equal(t, p.PublicID.String(), actualWebhook.Payment.PublicID)
+	assert.Equal(t, payment.TypePayment.String(), actualWebhook.Payment.Type)
+	assert.Equal(t, payment.StatusSuccess.String(), actualWebhook.Payment.Status)
+	assert.Equal(t, "50", actualWebhook.Payment.Amount.Value)
+	assert.Equal(t, "5000", actualWebhook.Payment.Amount.Raw)
+	assert.Equal(t, "USD", actualWebhook.Payment.Amount.Currency)
+	assert.Equal(t, int64(2), actualWebhook.Payment.Amount.Decimals)
+
+	require.NotNil(t, actualWebhook.Customer)
+	assert.Equal(t, person.Email, actualWebhook.Customer.Email)
+
+	require.NotNil(t, actualWebhook.PaymentMethod)
+	assert.Equal(t, tx.Currency.Blockchain.String(), actualWebhook.PaymentMethod.Blockchain)
+	assert.Equal(t, tx.Currency.Ticker, actualWebhook.PaymentMethod.Currency)
+	assert.Equal(t, tx.NetworkID(), actualWebhook.PaymentMethod.NetworkID)
+
+	require.NotNil(t, actualWebhook.PaymentLink)
+	assert.Equal(t, link.PublicID.String(), actualWebhook.PaymentLink.ID)
+
+	require.NotNil(t, actualWebhook.Transaction)
+	assert.Equal(t, string(transaction.TypeIncoming), actualWebhook.Transaction.Type)
+	assert.Equal(t, string(transaction.StatusPending), actualWebhook.Transaction.Status)
+	assert.Equal(t, tx.RecipientAddress, actualWebhook.Transaction.RecipientAddress)
+	assert.Equal(t, tx.Amount.String(), actualWebhook.Transaction.Amount.Value)
+	assert.Equal(t, tx.Amount.StringRaw(), actualWebhook.Transaction.Amount.Raw)
+	assert.Equal(t, tx.Currency.Ticker, actualWebhook.Transaction.Amount.Currency)
 
 	// Check that webhook timestamp was updated
 	freshPayment, err := tc.Services.Payment.GetByID(tc.Context, merchantID, p.ID)

@@ -9,7 +9,7 @@ const tokenQueries = {
         const {merchantId} = useSharedMerchantId();
 
         return useQuery(
-            ["listTokens"],
+            ["listTokens", merchantId],
             () => {
                 return tokenProvider.listTokens(merchantId!);
             },
@@ -32,7 +32,7 @@ const tokenQueries = {
             {
                 onSuccess: async () => {
                     await sleep(1000);
-                    queryClient.invalidateQueries(["listTokens"], {
+                    queryClient.invalidateQueries(["listTokens", merchantId], {
                         refetchPage: (_page, index, allPages) => index === allPages.length - 1
                     });
                 }
@@ -51,7 +51,7 @@ const tokenQueries = {
             {
                 onSuccess: async () => {
                     await sleep(1000);
-                    queryClient.invalidateQueries(["listTokens"], {
+                    queryClient.invalidateQueries(["listTokens", merchantId], {
                         refetchPage: (_page, index, allPages) => index === allPages.length - 1
                     });
                 }
