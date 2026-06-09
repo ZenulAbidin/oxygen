@@ -1,13 +1,3 @@
-### 2024-07-01
-
-Hello, Internet 🌎 Despite the great journey filled with challenges and learnings, I haven’t found product market fit for this project. Given this, and my current lack of bandwidth and will to continue improving and maintaining it, I’ve arhivie it and move forward. However, I believe this project still holds potential, and I hope someone with the necessary passion and resources might take it forward. 
-
-If you’re interested, feel free to fork the repo and continue its development.
-
-Thank y'all for your support and understanding.
-
---- 
-
 <p align="center">
   <a href="https://o2pay.co">
     <img src="./.github/static/cover.svg" height="200" alt="cover">
