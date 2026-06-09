@@ -234,6 +234,15 @@ func (p *Provider) UTXOTipHeight(ctx context.Context, blockchain kms.Blockchain,
 	return height, nil
 }
 
+func (p *Provider) UTXOFeeEstimates(ctx context.Context, blockchain kms.Blockchain, isTest bool) (map[string]float64, error) {
+	var out map[string]float64
+	if err := p.getJSONFromURLs(ctx, p.utxoURLs(blockchain, "/fee-estimates", isTest), &out); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
 func (p *Provider) BroadcastUTXOTransaction(
 	ctx context.Context,
 	blockchain kms.Blockchain,

@@ -18,10 +18,11 @@ const (
 	bitcoinAddressTxPageSize = 50
 	bitcoinMaxAddressTxPages = 10
 
-	bitcoinMainnetFeeSatPerVByte  = int64(10)
-	bitcoinTestnetFeeSatPerVByte  = int64(2)
-	litecoinMainnetFeeSatPerVByte = int64(2)
-	litecoinTestnetFeeSatPerVByte = int64(1)
+	bitcoinMainnetFeeSatPerVByte  = 10.0
+	bitcoinTestnetFeeSatPerVByte  = 2.0
+	litecoinMainnetFeeSatPerVByte = 2.0
+	litecoinTestnetFeeSatPerVByte = 1.0
+	minimumUTXOFeeSatPerVByte     = 0.1
 	bitcoinDustSats               = int64(546)
 	bitcoinRequiredConfirmations  = int64(6)
 	litecoinRequiredConfirmations = int64(12)
@@ -87,9 +88,9 @@ func (s *Service) bitcoinFee(ctx context.Context, baseCurrency, currency money.C
 		return Fee{}, errors.Wrap(ErrUnsupportedRuntime, "UTXO runtime supports native BTC/LTC coins only")
 	}
 
-	feeRate := utxoFeeRate(blockchain, isTest)
+	feeRate := s.utxoFeeRate(ctx, blockchain, isTest)
 	estimatedVBytes := estimateBitcoinP2WPKHVSize(1, 2)
-	feeSats := feeRate * estimatedVBytes
+	feeSats := utxoFeeSats(estimatedVBytes, feeRate)
 
 	totalCost, err := baseCurrency.MakeAmount(strconv.FormatInt(feeSats, 10))
 	if err != nil {
@@ -102,7 +103,7 @@ func (s *Service) bitcoinFee(ctx context.Context, baseCurrency, currency money.C
 	}
 
 	return NewFee(currency, time.Now().UTC(), isTest, BitcoinFee{
-		FeeSatPerVByte: strconv.FormatInt(feeRate, 10),
+		FeeSatPerVByte: formatUTXOFeeRate(feeRate),
 		EstimatedBytes: strconv.FormatInt(estimatedVBytes, 10),
 		TotalCostSats:  totalCost.StringRaw(),
 		TotalCostBTC:   totalCost.String(),
@@ -159,8 +160,8 @@ func (s *Service) PrepareBitcoinSweepTransactionExcluding(
 		return BitcoinTransactionPlan{}, err
 	}
 
-	feeRate, err := strconv.ParseInt(feeBTC.FeeSatPerVByte, 10, 64)
-	if err != nil || feeRate <= 0 {
+	feeRate, err := parseUTXOFeeRate(feeBTC.FeeSatPerVByte)
+	if err != nil {
 		return BitcoinTransactionPlan{}, errors.Wrap(ErrValidation, "invalid UTXO fee rate")
 	}
 
@@ -197,7 +198,7 @@ func (s *Service) PrepareBitcoinSweepTransactionExcluding(
 			AmountSats: amountSats,
 		}},
 		ChangeAddress:     "",
-		FeeSatPerVByte:    feeRate,
+		FeeSatPerVByte:    int64(math.Ceil(feeRate)),
 		EstimatedVBytes:   estimatedVBytes,
 		FeeSats:           feeSats,
 		RequiredAmountSat: amountSats,
@@ -236,8 +237,8 @@ func (s *Service) PrepareBitcoinTransactionExcluding(
 		return BitcoinTransactionPlan{}, err
 	}
 
-	feeRate, err := strconv.ParseInt(feeBTC.FeeSatPerVByte, 10, 64)
-	if err != nil || feeRate <= 0 {
+	feeRate, err := parseUTXOFeeRate(feeBTC.FeeSatPerVByte)
+	if err != nil {
 		return BitcoinTransactionPlan{}, errors.Wrap(ErrValidation, "invalid UTXO fee rate")
 	}
 
@@ -295,7 +296,7 @@ func (s *Service) PrepareBitcoinTransactionExcluding(
 		Inputs:            selected,
 		Outputs:           outputs,
 		ChangeAddress:     senderAddress,
-		FeeSatPerVByte:    feeRate,
+		FeeSatPerVByte:    int64(math.Ceil(feeRate)),
 		EstimatedVBytes:   estimatedVBytes,
 		FeeSats:           feeSats,
 		RequiredAmountSat: amountSats,
@@ -340,8 +341,8 @@ func (s *Service) MaxBitcoinTransactionAmountExcluding(
 		return money.Money{}, err
 	}
 
-	feeRate, err := strconv.ParseInt(feeBTC.FeeSatPerVByte, 10, 64)
-	if err != nil || feeRate <= 0 {
+	feeRate, err := parseUTXOFeeRate(feeBTC.FeeSatPerVByte)
+	if err != nil {
 		return money.Money{}, errors.Wrap(ErrValidation, "invalid UTXO fee rate")
 	}
 
@@ -552,7 +553,7 @@ func isMissingBitcoinUTXO(err error) bool {
 	return strings.Contains(body, "not found") || strings.Contains(body, "404")
 }
 
-func selectBitcoinUTXOs(utxos []BitcoinUTXO, amountSats, feeRate int64) (
+func selectBitcoinUTXOs(utxos []BitcoinUTXO, amountSats int64, feeRate float64) (
 	[]BitcoinUTXO,
 	int64,
 	int64,
@@ -575,7 +576,7 @@ func selectBitcoinUTXOs(utxos []BitcoinUTXO, amountSats, feeRate int64) (
 		inputTotal += utxo.AmountSats
 
 		estimatedWithChange := estimateBitcoinP2WPKHVSize(len(selected), 2)
-		feeWithChange := estimatedWithChange * feeRate
+		feeWithChange := utxoFeeSats(estimatedWithChange, feeRate)
 		changeSats := inputTotal - amountSats - feeWithChange
 		if changeSats >= bitcoinDustSats {
 			return selected, feeWithChange, changeSats, estimatedWithChange, nil
@@ -583,7 +584,7 @@ func selectBitcoinUTXOs(utxos []BitcoinUTXO, amountSats, feeRate int64) (
 
 		estimatedWithoutChange := estimateBitcoinP2WPKHVSize(len(selected), 1)
 		feeWithoutChange := inputTotal - amountSats
-		if feeWithoutChange >= estimatedWithoutChange*feeRate && feeWithoutChange >= 0 {
+		if feeWithoutChange >= utxoFeeSats(estimatedWithoutChange, feeRate) && feeWithoutChange >= 0 {
 			return selected, feeWithoutChange, 0, estimatedWithoutChange, nil
 		}
 	}
@@ -591,7 +592,7 @@ func selectBitcoinUTXOs(utxos []BitcoinUTXO, amountSats, feeRate int64) (
 	return nil, 0, 0, 0, errors.Wrap(ErrInsufficientFunds, "not enough BTC UTXOs to cover amount and network fee")
 }
 
-func selectBitcoinSweepUTXOs(utxos []BitcoinUTXO, feeRate int64) (
+func selectBitcoinSweepUTXOs(utxos []BitcoinUTXO, feeRate float64) (
 	[]BitcoinUTXO,
 	int64,
 	int64,
@@ -604,7 +605,7 @@ func selectBitcoinSweepUTXOs(utxos []BitcoinUTXO, feeRate int64) (
 
 	selected := make([]BitcoinUTXO, 0, len(utxos))
 	var inputTotal int64
-	perInputFee := int64(68) * feeRate
+	perInputFee := utxoFeeSats(68, feeRate)
 
 	for _, utxo := range utxos {
 		if utxo.AmountSats <= perInputFee {
@@ -620,7 +621,7 @@ func selectBitcoinSweepUTXOs(utxos []BitcoinUTXO, feeRate int64) (
 	}
 
 	estimatedVBytes := estimateBitcoinP2WPKHVSize(len(selected), 1)
-	feeSats := estimatedVBytes * feeRate
+	feeSats := utxoFeeSats(estimatedVBytes, feeRate)
 	amountSats := inputTotal - feeSats
 	if amountSats < bitcoinDustSats {
 		return nil, 0, 0, 0, errors.Wrap(ErrInsufficientFunds, "sweep amount is below BTC dust threshold after network fee")
@@ -633,12 +634,33 @@ func estimateBitcoinP2WPKHVSize(inputs int, outputs int) int64 {
 	return int64(10 + (68 * inputs) + (31 * outputs))
 }
 
-func bitcoinFeeRate(isTest bool) int64 {
+func bitcoinFeeRate(isTest bool) float64 {
 	if isTest {
 		return bitcoinTestnetFeeSatPerVByte
 	}
 
 	return bitcoinMainnetFeeSatPerVByte
+}
+
+func parseUTXOFeeRate(raw string) (float64, error) {
+	feeRate, err := strconv.ParseFloat(raw, 64)
+	if err != nil || feeRate <= 0 {
+		return 0, errors.Wrap(ErrValidation, "invalid UTXO fee rate")
+	}
+
+	return feeRate, nil
+}
+
+func utxoFeeSats(vbytes int64, feeRate float64) int64 {
+	if vbytes <= 0 || feeRate <= 0 {
+		return 0
+	}
+
+	return int64(math.Ceil(float64(vbytes) * feeRate))
+}
+
+func formatUTXOFeeRate(feeRate float64) string {
+	return strconv.FormatFloat(feeRate, 'f', -1, 64)
 }
 
 func satoshiAmount(amount money.Money) (int64, error) {
@@ -781,7 +803,43 @@ func utxoRequiredConfirmations(blockchain kmswallet.Blockchain) int64 {
 	}
 }
 
-func utxoFeeRate(blockchain kmswallet.Blockchain, isTest bool) int64 {
+func (s *Service) utxoFeeRate(ctx context.Context, blockchain kmswallet.Blockchain, isTest bool) float64 {
+	if s.providers.Chain != nil {
+		estimates, err := s.providers.Chain.UTXOFeeEstimates(ctx, blockchain, isTest)
+		if err == nil {
+			if feeRate, ok := economicalUTXOFeeRate(estimates); ok {
+				return feeRate
+			}
+		} else if s.logger != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("blockchain", string(blockchain)).
+				Bool("is_test", isTest).
+				Msg("unable to get UTXO fee estimates, using fallback fee rate")
+		}
+	}
+
+	return fallbackUTXOFeeRate(blockchain, isTest)
+}
+
+func economicalUTXOFeeRate(estimates map[string]float64) (float64, bool) {
+	var best float64
+	for _, feeRate := range estimates {
+		if feeRate <= 0 {
+			continue
+		}
+		if best == 0 || feeRate < best {
+			best = feeRate
+		}
+	}
+	if best == 0 {
+		return 0, false
+	}
+
+	return math.Max(best, minimumUTXOFeeSatPerVByte), true
+}
+
+func fallbackUTXOFeeRate(blockchain kmswallet.Blockchain, isTest bool) float64 {
 	switch blockchain {
 	case kmswallet.LTC:
 		if isTest {

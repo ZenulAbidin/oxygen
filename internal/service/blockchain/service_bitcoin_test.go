@@ -45,6 +45,18 @@ func TestSelectBitcoinUTXOs(t *testing.T) {
 		assert.Zero(t, changeSats)
 		assert.Zero(t, estimatedVBytes)
 	})
+
+	t.Run("supports sub-sat-per-vbyte fee rates", func(t *testing.T) {
+		selected, feeSats, changeSats, estimatedVBytes, err := selectBitcoinUTXOs([]BitcoinUTXO{
+			{Hash: "single", AmountSats: 557},
+		}, 546, 0.1)
+
+		require.NoError(t, err)
+		require.Len(t, selected, 1)
+		assert.Equal(t, int64(11), feeSats)
+		assert.Zero(t, changeSats)
+		assert.Equal(t, int64(109), estimatedVBytes)
+	})
 }
 
 func TestSelectBitcoinSweepUTXOs(t *testing.T) {
@@ -86,4 +98,14 @@ func TestSelectBitcoinSweepUTXOs(t *testing.T) {
 		assert.Zero(t, feeSats)
 		assert.Zero(t, estimatedVBytes)
 	})
+}
+
+func TestEconomicalUTXOFeeRate(t *testing.T) {
+	feeRate, ok := economicalUTXOFeeRate(map[string]float64{
+		"1":   1.5,
+		"144": 0.1,
+	})
+
+	require.True(t, ok)
+	assert.Equal(t, 0.1, feeRate)
 }

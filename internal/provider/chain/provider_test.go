@@ -93,3 +93,27 @@ func TestUTXOAddressTransactionsCachesSuccessfulGETs(t *testing.T) {
 
 	assert.Equal(t, 1, hits)
 }
+
+func TestUTXOFeeEstimates(t *testing.T) {
+	logger := zerolog.New(io.Discard)
+
+	explorer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/fee-estimates", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"1":1.5,"144":0.1}`))
+	}))
+	defer explorer.Close()
+
+	provider := New(Config{
+		BitcoinMainnetExplorerURL:  explorer.URL,
+		BitcoinTestnetExplorerURL:  explorer.URL,
+		LitecoinMainnetExplorerURL: explorer.URL,
+		LitecoinTestnetExplorerURL: explorer.URL,
+	}, &logger)
+
+	estimates, err := provider.UTXOFeeEstimates(context.Background(), kms.BTC, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1.5, estimates["1"])
+	assert.Equal(t, 0.1, estimates["144"])
+}
