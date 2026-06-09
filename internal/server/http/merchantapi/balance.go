@@ -47,10 +47,11 @@ func (h *Handler) balanceToResponse(ctx context.Context, b *wallet.Balance) *mod
 	}
 
 	isTest := b.NetworkID != currency.NetworkID
+	displayAmount := h.balanceDisplayAmount(ctx, b, currency, isTest)
 
 	usdAmount := "0"
 	if !isTest {
-		if conv, err := h.blockchain.CryptoToFiat(ctx, b.Amount, money.USD); err == nil {
+		if conv, err := h.blockchain.CryptoToFiat(ctx, displayAmount, money.USD); err == nil {
 			usdAmount = conv.To.String()
 		} else {
 			usdAmount = ""
@@ -65,9 +66,68 @@ func (h *Handler) balanceToResponse(ctx context.Context, b *wallet.Balance) *mod
 		Name:                       currency.DisplayName(),
 		Currency:                   currency.Name,
 		Ticker:                     currency.Ticker,
-		Amount:                     b.Amount.String(),
+		Amount:                     displayAmount.String(),
 		UsdAmount:                  usdAmount,
 		MinimalWithdrawalAmountUSD: "0",
+	}
+}
+
+func (h *Handler) balanceDisplayAmount(
+	ctx context.Context,
+	b *wallet.Balance,
+	currency money.CryptoCurrency,
+	isTest bool,
+) money.Money {
+	if h.payments == nil || !isNativeUTXOCurrency(currency) {
+		return b.Amount
+	}
+
+	fee, err := h.payments.GetWithdrawalFee(ctx, b.EntityID, b.UUID)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn().Err(err).
+				Int64("balance_id", b.ID).
+				Str("currency", b.Currency).
+				Msg("using ledger balance: unable to calculate UTXO spendable balance")
+		}
+
+		return b.Amount
+	}
+
+	if fee.MaximumAmount.IsZero() {
+		zero, err := currency.MakeAmount("0")
+		if err != nil {
+			return b.Amount
+		}
+
+		return zero
+	}
+
+	amount, err := fee.MaximumAmount.Add(fee.CryptoFee)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn().Err(err).
+				Int64("balance_id", b.ID).
+				Str("currency", b.Currency).
+				Msg("using ledger balance: unable to calculate UTXO display amount")
+		}
+
+		return b.Amount
+	}
+
+	return amount
+}
+
+func isNativeUTXOCurrency(currency money.CryptoCurrency) bool {
+	if currency.Type != money.Coin {
+		return false
+	}
+
+	switch currency.Blockchain {
+	case money.Blockchain("BTC"), money.Blockchain("LTC"):
+		return true
+	default:
+		return false
 	}
 }
 

@@ -2,7 +2,9 @@ package blockchain
 
 import (
 	"testing"
+	"time"
 
+	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -108,4 +110,66 @@ func TestEconomicalUTXOFeeRate(t *testing.T) {
 
 	require.True(t, ok)
 	assert.Equal(t, 0.1, feeRate)
+}
+
+func TestBitcoinSweepAmountFromUTXOsSupportsLitecoin(t *testing.T) {
+	ltc := testUTXOCurrency("LTC", "LTC")
+	fee := testUTXOFee(ltc, "0.746")
+
+	amount, err := BitcoinSweepAmountFromUTXOs(ltc, fee, []BitcoinUTXO{
+		{Hash: "small", AmountSats: 1_538},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "1456", amount.StringRaw())
+	assert.Equal(t, "0.00001456", amount.String())
+}
+
+func TestMaxBitcoinTransactionAmountFromUTXOsIncludesFinalFee(t *testing.T) {
+	ltc := testUTXOCurrency("LTC", "LTC")
+	fee := testUTXOFee(ltc, "0.746")
+	maxTotalCost := loMust(ltc.MakeAmount("6152"))
+
+	amount, effectiveFee, err := MaxBitcoinTransactionAmountAndFeeFromUTXOs(ltc, fee, maxTotalCost, []BitcoinUTXO{
+		{Hash: "consolidated-1", AmountSats: 1_456},
+		{Hash: "consolidated-2", AmountSats: 1_456},
+		{Hash: "consolidated-3", AmountSats: 1_456},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "4185", amount.StringRaw())
+	assert.Equal(t, "0.00004185", amount.String())
+	assert.Equal(t, "183", effectiveFee.StringRaw())
+	assert.Equal(t, "0.00000183", effectiveFee.String())
+
+	amountOnly, err := MaxBitcoinTransactionAmountFromUTXOs(ltc, fee, maxTotalCost, []BitcoinUTXO{
+		{Hash: "consolidated-1", AmountSats: 1_456},
+		{Hash: "consolidated-2", AmountSats: 1_456},
+		{Hash: "consolidated-3", AmountSats: 1_456},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, amount.StringRaw(), amountOnly.StringRaw())
+}
+
+func testUTXOCurrency(ticker string, blockchain money.Blockchain) money.CryptoCurrency {
+	return money.CryptoCurrency{
+		Blockchain:    blockchain,
+		NetworkID:     "mainnet",
+		TestNetworkID: "testnet",
+		Type:          money.Coin,
+		Ticker:        ticker,
+		Decimals:      8,
+	}
+}
+
+func testUTXOFee(currency money.CryptoCurrency, feeRate string) Fee {
+	return NewFee(currency, time.Now().UTC(), false, BitcoinFee{FeeSatPerVByte: feeRate})
+}
+
+func loMust[T any](value T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+
+	return value
 }

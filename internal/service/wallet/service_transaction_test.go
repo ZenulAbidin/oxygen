@@ -186,6 +186,16 @@ func (s *bitcoinBlockchainStub) MaxBitcoinTransactionAmountExcluding(
 	panic("unexpected call")
 }
 
+func (s *bitcoinBlockchainStub) SpendableUTXOsExcluding(
+	context.Context,
+	string,
+	blockchain.Fee,
+	bool,
+	[]blockchain.BitcoinUTXOKey,
+) ([]blockchain.BitcoinUTXO, error) {
+	panic("unexpected call")
+}
+
 func (s *bitcoinBlockchainStub) GetExchangeRate(context.Context, string, string) (blockchain.ExchangeRate, error) {
 	panic("unexpected call")
 }

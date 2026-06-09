@@ -70,6 +70,13 @@ type BlockchainService interface {
 		maxTotalCost money.Money,
 		excluded []blockchain.BitcoinUTXOKey,
 	) (money.Money, error)
+	SpendableUTXOsExcluding(
+		ctx context.Context,
+		senderAddress string,
+		fee blockchain.Fee,
+		isTest bool,
+		excluded []blockchain.BitcoinUTXOKey,
+	) ([]blockchain.BitcoinUTXO, error)
 }
 
 type Service struct {

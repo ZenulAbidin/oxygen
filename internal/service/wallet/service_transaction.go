@@ -116,6 +116,20 @@ func (s *Service) MaxSpendableUTXOAmount(
 	)
 }
 
+func (s *Service) SpendableUTXOs(
+	ctx context.Context,
+	sender *Wallet,
+	fee blockchain.Fee,
+	isTest bool,
+) ([]blockchain.BitcoinUTXO, error) {
+	excluded, err := s.activeBitcoinUTXOReservationKeys(ctx, sender.ID, isTest)
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to list reserved UTXOs")
+	}
+
+	return s.blockchain.SpendableUTXOsExcluding(ctx, sender.Address, fee, isTest, excluded)
+}
+
 func (s *Service) createSignedBitcoinTransaction(
 	ctx context.Context,
 	sender *Wallet,

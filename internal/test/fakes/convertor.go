@@ -83,3 +83,13 @@ func (c *ConvertorProxy) MaxBitcoinTransactionAmountExcluding(
 ) (money.Money, error) {
 	return c.conv.MaxBitcoinTransactionAmountExcluding(ctx, senderAddress, recipient, currency, fee, isTest, maxTotalCost, excluded)
 }
+
+func (c *ConvertorProxy) SpendableUTXOsExcluding(
+	ctx context.Context,
+	senderAddress string,
+	fee blockchain.Fee,
+	isTest bool,
+	excluded []blockchain.BitcoinUTXOKey,
+) ([]blockchain.BitcoinUTXO, error) {
+	return c.conv.SpendableUTXOsExcluding(ctx, senderAddress, fee, isTest, excluded)
+}

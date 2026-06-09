@@ -309,10 +309,8 @@ func (s *Service) updateBalancesAfterTxConfirmation(
 			return nil
 		}
 
-		// If customer paid more than required, restrict
-		// merchant's balance increment by initial tx amount
 		gainedAmount := *tx.FactAmount
-		if tx.FactAmount.GreaterThan(tx.Amount) {
+		if !isNativeUTXOCurrency(tx.Currency) && tx.FactAmount.GreaterThan(tx.Amount) {
 			gainedAmount = tx.Amount
 		}
 
@@ -452,6 +450,19 @@ func (s *Service) updateBalancesAfterTxConfirmation(
 	}
 
 	return fmt.Errorf("unknown transaction type %q", tx.Type)
+}
+
+func isNativeUTXOCurrency(currency money.CryptoCurrency) bool {
+	if currency.Type != money.Coin {
+		return false
+	}
+
+	switch currency.Blockchain {
+	case money.Blockchain("BTC"), money.Blockchain("LTC"):
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) Cancel(ctx context.Context, tx *Transaction, status Status, reason string, setNetworkFee *money.Money) error {

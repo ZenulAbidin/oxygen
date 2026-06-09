@@ -74,7 +74,7 @@ func TestBalanceRoutes(t *testing.T) {
 		assert.Equal(t, "MATIC", body.Results[0].Blockchain)
 		assert.Equal(t, "Polygon", body.Results[0].BlockchainName)
 		assert.Equal(t, "MATIC (Polygon)", body.Results[0].Name)
-		assert.Equal(t, "", body.Results[0].MinimalWithdrawalAmountUSD)
+		assert.Equal(t, "0", body.Results[0].MinimalWithdrawalAmountUSD)
 		assert.Equal(t, "0", body.Results[0].UsdAmount) // test balances are always displayed as "0"
 		assert.True(t, body.Results[0].IsTest)
 
@@ -86,7 +86,7 @@ func TestBalanceRoutes(t *testing.T) {
 		assert.Equal(t, "ETH", body.Results[1].Blockchain)
 		assert.Equal(t, "Ethereum", body.Results[1].BlockchainName)
 		assert.Equal(t, "ETH (Ethereum)", body.Results[1].Name)
-		assert.Equal(t, "", body.Results[1].MinimalWithdrawalAmountUSD)
+		assert.Equal(t, "0", body.Results[1].MinimalWithdrawalAmountUSD)
 		assert.Equal(t, "900", body.Results[1].UsdAmount)
 		assert.False(t, body.Results[1].IsTest)
 
@@ -98,7 +98,7 @@ func TestBalanceRoutes(t *testing.T) {
 		assert.Equal(t, "ETH", body.Results[2].Blockchain)
 		assert.Equal(t, "Ethereum", body.Results[2].BlockchainName)
 		assert.Equal(t, "USDT (Ethereum)", body.Results[2].Name)
-		assert.Equal(t, "", body.Results[2].MinimalWithdrawalAmountUSD)
+		assert.Equal(t, "0", body.Results[2].MinimalWithdrawalAmountUSD)
 		assert.Equal(t, "0", body.Results[2].UsdAmount) // < $0.01 is 0
 		assert.False(t, body.Results[2].IsTest)
 	})

@@ -414,7 +414,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
                                     {`${fee.minimumAmount} ${fee.currency}`}
                                 </Typography.Text>
                                 {". "}
-                                {"Maximum currently spendable: "}
+                                {"Maximum withdrawable: "}
                                 <Typography.Text strong>
                                     {`${fee.maximumAmount} ${fee.currency}`}
                                 </Typography.Text>

@@ -36,8 +36,12 @@ func TestService_Update(t *testing.T) {
 	currencyETH, err := tc.Services.Blockchain.GetCurrencyByTicker("ETH")
 	require.NoError(t, err)
 
+	currencyBTC, err := tc.Services.Blockchain.GetCurrencyByTicker("BTC")
+	require.NoError(t, err)
+
 	// Mock network fee
 	networkFee := money.MustCryptoFromRaw(currencyETH.Ticker, "1", currencyETH.Decimals)
+	btcNetworkFee := money.MustCryptoFromRaw(currencyBTC.Ticker, "1", currencyBTC.Decimals)
 
 	// Create merchants
 	mt1, _ := tc.Must.CreateMerchant(t, 1)
@@ -46,6 +50,7 @@ func TestService_Update(t *testing.T) {
 	// Create wallets
 	wallet1 := tc.Must.CreateWallet(t, "ETH", "0x111", "pub-key", wallet.TypeInbound)
 	wallet2 := tc.Must.CreateWallet(t, "ETH", "0x222", "pub-key", wallet.TypeInbound)
+	walletBTC := tc.Must.CreateWallet(t, "BTC", "bc1qtestaddress", "pub-key", wallet.TypeInbound)
 
 	for testCaseIndex, testCase := range []struct {
 		merchantID int64
@@ -199,6 +204,30 @@ func TestService_Update(t *testing.T) {
 			assert: func(t *testing.T, tx *transaction.Transaction, wallet, merchant money.Money) {
 				moneyEqual(t, createCrypto(t, currencyETH, "1_500_000_000"), wallet)
 				moneyEqual(t, createCrypto(t, currencyETH, "1_480_000_000"), merchant)
+			},
+		},
+		// BTC credits actual received crypto instead of capping at order amount
+		{
+			merchantID: mt1.ID,
+			txCreate: transaction.CreateTransaction{
+				Type:            transaction.TypeIncoming,
+				EntityID:        7,
+				RecipientWallet: walletBTC,
+				Currency:        currencyBTC,
+				Amount:          createCrypto(t, currencyBTC, "1000"),
+				ServiceFee:      createCrypto(t, currencyBTC, "10"),
+				USDAmount:       createUSD(t, 1),
+			},
+			txConfirm: transaction.ConfirmTransaction{
+				Status:          transaction.StatusCompleted,
+				SenderAddress:   "",
+				TransactionHash: "btc-tx-1",
+				NetworkFee:      btcNetworkFee,
+				FactAmount:      createCrypto(t, currencyBTC, "1500"),
+			},
+			assert: func(t *testing.T, tx *transaction.Transaction, wallet, merchant money.Money) {
+				moneyEqual(t, createCrypto(t, currencyBTC, "1500"), wallet)
+				moneyEqual(t, createCrypto(t, currencyBTC, "1490"), merchant)
 			},
 		},
 	} {

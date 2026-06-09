@@ -228,14 +228,17 @@ func (s *Service) getWithdrawalFee(
 			return nil, errors.Wrapf(err, "unable to make %s withdrawal fee", currency.Ticker)
 		}
 
+		limit, err := s.maxUTXOWithdrawalLimit(ctx, balance, currency, networkFee, isTest, "")
+		if err != nil {
+			return nil, errors.Wrapf(err, "unable to calculate %s max withdrawal amount", currency.Ticker)
+		}
+		if !limit.CryptoFee.IsZero() {
+			cryptoFee = limit.CryptoFee
+		}
+
 		conv, err := s.blockchain.CryptoToFiat(ctx, cryptoFee, money.USD)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unable to convert %s fee to USD", currency.Ticker)
-		}
-
-		maximumAmount, err := s.maxUTXOWithdrawalAmount(ctx, balance, currency, networkFee, isTest, "")
-		if err != nil {
-			return nil, errors.Wrapf(err, "unable to calculate %s max withdrawal amount", currency.Ticker)
 		}
 
 		return &WithdrawalFee{
@@ -246,7 +249,7 @@ func (s *Service) getWithdrawalFee(
 			USDFee:        conv.To,
 			CryptoFee:     cryptoFee,
 			MinimumAmount: minimumAmount,
-			MaximumAmount: maximumAmount,
+			MaximumAmount: limit.MaximumAmount,
 		}, nil
 	}
 
@@ -293,22 +296,32 @@ type utxoWithdrawalSource struct {
 	Balance *wallet.Balance
 }
 
-func (s *Service) maxUTXOWithdrawalAmount(
+type utxoWithdrawalLimit struct {
+	MaximumAmount money.Money
+	CryptoFee     money.Money
+}
+
+func (s *Service) maxUTXOWithdrawalLimit(
 	ctx context.Context,
 	merchantBalance *wallet.Balance,
 	currency money.CryptoCurrency,
 	fee blockchain.Fee,
 	isTest bool,
 	recipient string,
-) (money.Money, error) {
+) (utxoWithdrawalLimit, error) {
 	maximum, err := currency.MakeAmount("0")
 	if err != nil {
-		return money.Money{}, err
+		return utxoWithdrawalLimit{}, err
+	}
+	maximumFee, err := currency.MakeAmount("0")
+	if err != nil {
+		return utxoWithdrawalLimit{}, err
 	}
 
+	consolidatedInputs := make([]blockchain.BitcoinUTXO, 0)
 	sources, err := s.listUTXOWithdrawalSources(ctx, merchantBalance, currency, isTest)
 	if err != nil {
-		return money.Money{}, err
+		return utxoWithdrawalLimit{}, err
 	}
 
 	for _, source := range sources {
@@ -320,35 +333,99 @@ func (s *Service) maxUTXOWithdrawalAmount(
 			continue
 		}
 
-		recipientAddress := recipient
-		if recipientAddress == "" {
-			recipientAddress = source.Wallet.Address
-		}
-
-		spendable, err := s.wallets.MaxSpendableUTXOAmount(
-			ctx,
-			source.Wallet,
-			recipientAddress,
-			currency,
-			fee,
-			isTest,
-			maxTotalCost,
-		)
+		utxos, err := s.wallets.SpendableUTXOs(ctx, source.Wallet, fee, isTest)
 		if err != nil {
 			s.logger.Warn().Err(err).
 				Int64("wallet_id", source.Wallet.ID).
 				Str("wallet_type", string(source.Wallet.Type)).
 				Str("currency", currency.Ticker).
-				Msg("skipping UTXO withdrawal source")
+				Msg("skipping UTXO withdrawal source: unable to list spendable UTXOs")
 			continue
 		}
 
-		if spendable.GreaterThan(maximum) {
-			maximum = spendable
+		if len(utxos) == 0 {
+			continue
 		}
+
+		spendable, spendableFee, err := blockchain.MaxBitcoinTransactionAmountAndFeeFromUTXOs(currency, fee, maxTotalCost, utxos)
+		if err != nil {
+			s.logger.Warn().Err(err).
+				Int64("wallet_id", source.Wallet.ID).
+				Str("wallet_type", string(source.Wallet.Type)).
+				Str("currency", currency.Ticker).
+				Msg("skipping direct UTXO withdrawal source")
+		} else if spendable.GreaterThan(maximum) {
+			maximum = spendable
+			maximumFee = spendableFee
+		}
+
+		if source.Wallet.Type == wallet.TypeOutbound {
+			consolidatedInputs = append(consolidatedInputs, utxos...)
+			continue
+		}
+
+		sweepAmount, err := blockchain.BitcoinSweepAmountFromUTXOs(currency, fee, utxos)
+		if err != nil {
+			s.logger.Warn().Err(err).
+				Int64("wallet_id", source.Wallet.ID).
+				Str("wallet_type", string(source.Wallet.Type)).
+				Str("currency", currency.Ticker).
+				Msg("skipping UTXO consolidation source")
+			continue
+		}
+
+		amountSats, err := withdrawalUTXOAmountSats(sweepAmount)
+		if err != nil {
+			return utxoWithdrawalLimit{}, err
+		}
+		if amountSats < blockchain.UTXODustSats {
+			continue
+		}
+
+		consolidatedInputs = append(consolidatedInputs, blockchain.BitcoinUTXO{
+			Hash:       fmt.Sprintf("consolidated-%d", source.Wallet.ID),
+			Index:      uint32(len(consolidatedInputs)),
+			AmountSats: amountSats,
+		})
 	}
 
-	return maximum, nil
+	if len(consolidatedInputs) == 0 {
+		return utxoWithdrawalLimit{MaximumAmount: maximum, CryptoFee: maximumFee}, nil
+	}
+
+	consolidatedMaximum, consolidatedFee, err := blockchain.MaxBitcoinTransactionAmountAndFeeFromUTXOs(
+		currency,
+		fee,
+		merchantBalance.Amount,
+		consolidatedInputs,
+	)
+	if err != nil {
+		if errors.Is(err, blockchain.ErrInsufficientFunds) {
+			return utxoWithdrawalLimit{MaximumAmount: maximum, CryptoFee: maximumFee}, nil
+		}
+
+		return utxoWithdrawalLimit{}, err
+	}
+
+	if consolidatedMaximum.GreaterThan(maximum) {
+		maximum = consolidatedMaximum
+		maximumFee = consolidatedFee
+	}
+
+	return utxoWithdrawalLimit{MaximumAmount: maximum, CryptoFee: maximumFee}, nil
+}
+
+func withdrawalUTXOAmountSats(amount money.Money) (int64, error) {
+	if amount.Decimals() != 8 {
+		return 0, errors.Wrapf(ErrValidation, "%s UTXO amount must use 8 decimals", amount.Ticker())
+	}
+
+	value, err := strconv.ParseInt(amount.StringRaw(), 10, 64)
+	if err != nil {
+		return 0, errors.Wrapf(ErrValidation, "unable to parse %s UTXO amount", amount.Ticker())
+	}
+
+	return value, nil
 }
 
 func (s *Service) listUTXOWithdrawalSources(
