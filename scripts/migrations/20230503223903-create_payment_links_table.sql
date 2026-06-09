@@ -10,11 +10,12 @@ create table if not exists payment_links
 
   merchant_id     bigint                not null,
 
+  type            varchar(16) default 'payment' not null,
   name            varchar(128)          not null,
   description     text                  not null,
 
-  price           numeric(64)           not null,
-  decimals        integer               not null,
+  price           numeric(64),
+  decimals        integer default 2     not null,
   currency        varchar(16)           not null,
 
   success_action  varchar(16)           not null,

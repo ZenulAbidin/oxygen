@@ -56,7 +56,9 @@ func TestPaymentLinkRoutes(t *testing.T) {
 		assert.Equal(t, mt.Name, body.MerchantName)
 		assert.Equal(t, link.Description, body.Description)
 		assert.Equal(t, link.Price.Ticker(), body.Currency)
-		assert.Equal(t, lo.Must(link.Price.FiatToFloat64()), body.Price)
+		assert.Equal(t, string(payment.LinkTypePayment), body.Type)
+		require.NotNil(t, body.Price)
+		assert.Equal(t, lo.Must(link.Price.FiatToFloat64()), *body.Price)
 
 		t.Run("NotFound", func(t *testing.T) {
 			// ACT
@@ -70,6 +72,39 @@ func TestPaymentLinkRoutes(t *testing.T) {
 			// ASSERT
 			assert.Equal(t, http.StatusBadRequest, res.StatusCode())
 		})
+	})
+
+	t.Run("GetDonationLink", func(t *testing.T) {
+		// Given a donation link
+		link, err := tc.Services.Payment.CreatePaymentLink(tc.Context, mt.ID, payment.CreateLinkProps{
+			Type:           payment.LinkTypeDonation,
+			Name:           "my-donation-link",
+			Currency:       money.USD,
+			Description:    util.Ptr("Support the project"),
+			SuccessAction:  payment.SuccessActionShowMessage,
+			SuccessMessage: util.Ptr("Thank you"),
+		})
+		require.NoError(t, err)
+
+		// ACT
+		res := tc.Client.
+			GET().
+			Path(paymentLinkRoute).
+			WithCSRF().
+			Param(paramPaymentLinkSlug, link.Slug).
+			Do()
+
+		// ASSERT
+		var body model.PaymentLink
+
+		assert.Equal(t, http.StatusOK, res.StatusCode())
+		assert.NoError(t, res.JSON(&body))
+
+		assert.Equal(t, mt.Name, body.MerchantName)
+		assert.Equal(t, link.Description, body.Description)
+		assert.Equal(t, link.Currency.String(), body.Currency)
+		assert.Equal(t, string(payment.LinkTypeDonation), body.Type)
+		assert.Nil(t, body.Price)
 	})
 
 	t.Run("CreatePaymentFromLink", func(t *testing.T) {
@@ -141,5 +176,63 @@ func TestPaymentLinkRoutes(t *testing.T) {
 				time.Sleep(time.Second)
 			})
 		}
+
+		t.Run("donation", func(t *testing.T) {
+			link, err := tc.Services.Payment.CreatePaymentLink(tc.Context, mt.ID, payment.CreateLinkProps{
+				Type:           payment.LinkTypeDonation,
+				Name:           "donation/message",
+				Currency:       money.USD,
+				Description:    &description,
+				SuccessAction:  payment.SuccessActionShowMessage,
+				SuccessMessage: &successMessage,
+			})
+			require.NoError(t, err)
+
+			res := tc.Client.
+				POST().
+				Path(createPaymentRoute).
+				WithCSRF().
+				Param(paramPaymentLinkSlug, link.Slug).
+				JSON(&model.CreatePaymentFromLinkRequest{Price: 42}).
+				Do()
+
+			var body model.PaymentRedirectInfo
+
+			assert.Equal(t, http.StatusCreated, res.StatusCode())
+			assert.NoError(t, res.JSON(&body))
+
+			id := uuid.MustParse(body.ID)
+
+			pt, err := tc.Services.Payment.GetByPublicID(tc.Context, id)
+			assert.NoError(t, err)
+
+			assert.True(t, lo.Must(money.USD.MakeAmount("42")).Equals(pt.Price))
+			assert.Equal(t, description, *pt.Description)
+			assert.Equal(t, payment.SuccessActionShowMessage, *pt.LinkSuccessAction())
+			assert.Equal(t, link.ID, pt.LinkID())
+			assert.Equal(t, &successMessage, pt.LinkSuccessMessage())
+		})
+
+		t.Run("donation/invalid-amount", func(t *testing.T) {
+			link, err := tc.Services.Payment.CreatePaymentLink(tc.Context, mt.ID, payment.CreateLinkProps{
+				Type:           payment.LinkTypeDonation,
+				Name:           "donation/invalid-amount",
+				Currency:       money.USD,
+				SuccessAction:  payment.SuccessActionShowMessage,
+				SuccessMessage: &successMessage,
+			})
+			require.NoError(t, err)
+
+			res := tc.Client.
+				POST().
+				Path(createPaymentRoute).
+				WithCSRF().
+				Param(paramPaymentLinkSlug, link.Slug).
+				JSON(&model.CreatePaymentFromLinkRequest{Price: 0}).
+				Do()
+
+			assert.Equal(t, http.StatusBadRequest, res.StatusCode())
+			assert.Contains(t, res.String(), "price should be between")
+		})
 	})
 }

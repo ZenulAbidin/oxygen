@@ -7,6 +7,7 @@ package model
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -35,8 +36,11 @@ type PaymentLink struct {
 
 	// Price
 	// Example: 39.9
+	Price *float64 `json:"price"`
+
+	// Link type
 	// Required: true
-	Price float64 `json:"price"`
+	Type string `json:"type"`
 }
 
 // Validate validates this payment link
@@ -51,7 +55,7 @@ func (m *PaymentLink) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validatePrice(formats); err != nil {
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -79,9 +83,43 @@ func (m *PaymentLink) validateMerchantName(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *PaymentLink) validatePrice(formats strfmt.Registry) error {
+var paymentLinkTypeTypePropEnum []interface{}
 
-	if err := validate.Required("price", "body", float64(m.Price)); err != nil {
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["payment","donation"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		paymentLinkTypeTypePropEnum = append(paymentLinkTypeTypePropEnum, v)
+	}
+}
+
+const (
+
+	// PaymentLinkTypePayment captures enum value "payment"
+	PaymentLinkTypePayment string = "payment"
+
+	// PaymentLinkTypeDonation captures enum value "donation"
+	PaymentLinkTypeDonation string = "donation"
+)
+
+// prop value enum
+func (m *PaymentLink) validateTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, paymentLinkTypeTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *PaymentLink) validateType(formats strfmt.Registry) error {
+
+	if err := validate.RequiredString("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateTypeEnum("type", "body", m.Type); err != nil {
 		return err
 	}
 

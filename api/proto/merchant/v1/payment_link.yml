@@ -12,7 +12,7 @@ definitions:
   PaymentLink:
     type: object
     description: Payment Link object
-    required: [ id, createdAt, url, name, currency, price, successAction ]
+    required: [ id, createdAt, url, name, currency, successAction, type ]
     properties:
       id:
         description: Link's UUID
@@ -44,8 +44,13 @@ definitions:
         x-nullable: false
       price:
         type: string
-        description: Payment price
+        description: Payment price for fixed payment links. Donation links return null.
         example: 29.90
+        x-nullable: true
+      type:
+        type: string
+        description: Link type
+        enum: [ payment, donation ]
         x-nullable: false
       description:
         type: string
@@ -89,7 +94,7 @@ definitions:
   CreatePaymentLinkRequest:
     type: object
     description: Payment Link object
-    required: [ name, currency, price, successAction ]
+    required: [ name, currency, successAction ]
     properties:
       name:
         type: string
@@ -107,9 +112,14 @@ definitions:
       price:
         type: number
         format: float32
-        description: Price in fiat currency
+        description: Price in fiat currency. Required for fixed payment links and ignored for donation links.
         minimum: 0.01
         example: 29.90
+        x-nullable: false
+      type:
+        type: string
+        description: Link type. Defaults to payment when omitted.
+        enum: [ payment, donation ]
         x-nullable: false
       description:
         type: string

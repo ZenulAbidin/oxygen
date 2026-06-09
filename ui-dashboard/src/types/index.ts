@@ -193,15 +193,17 @@ interface ListPaymentParams {
 }
 
 type PaymentLinkAction = "redirect" | "showMessage";
+type PaymentLinkType = "payment" | "donation";
 
 interface PaymentLinkParams {
     currency: Currency;
     description?: string;
     name: string;
-    price: number;
+    price?: number;
     redirectUrl?: string;
     successAction: PaymentLinkAction;
     successMessage?: string;
+    type: PaymentLinkType;
 }
 
 interface PaymentLink {
@@ -210,10 +212,11 @@ interface PaymentLink {
     description?: string;
     id: string;
     name: string;
-    price: number;
+    price?: string | null;
     redirectUrl?: string;
     successAction: PaymentLinkAction;
     successMessage?: string;
+    type: PaymentLinkType;
     url: string;
 }
 
@@ -315,6 +318,7 @@ export type {
     PaymentLinkParams,
     PaymentLink,
     PaymentLinkAction,
+    PaymentLinkType,
     UserCreateForm,
     AuthProvider
 };

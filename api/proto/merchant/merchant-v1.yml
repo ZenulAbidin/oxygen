@@ -53,7 +53,8 @@ tags:
   - name: PaymentLink
     description: |
       Links are the easy way of accepting payments from your customers.
-      Each link represents a pre-defined payment with amount and description.
+      Fixed links represent a pre-defined payment with amount and description.
+      Donation links let customers choose the amount at checkout.
       Customer can create a payment on-the-fly by visiting `https://pay.o2pay.co/link/<link>`
 
 paths:

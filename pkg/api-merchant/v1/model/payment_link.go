@@ -47,8 +47,7 @@ type PaymentLink struct {
 
 	// Payment price
 	// Example: 29.9
-	// Required: true
-	Price string `json:"price"`
+	Price *string `json:"price"`
 
 	// Redirect URL after successful customer's payment
 	// Example: https://my-site.com/success?order=abc123
@@ -69,6 +68,11 @@ type PaymentLink struct {
 	// Example: https://pay.o2pay.co/link/ufaiCu6J
 	// Required: true
 	URL string `json:"url"`
+
+	// Link type
+	// Required: true
+	// Enum: [payment donation]
+	Type string `json:"type"`
 }
 
 // Validate validates this payment link
@@ -96,6 +100,10 @@ func (m *PaymentLink) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateSuccessAction(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -184,8 +192,15 @@ func (m *PaymentLink) validateName(formats strfmt.Registry) error {
 }
 
 func (m *PaymentLink) validatePrice(formats strfmt.Registry) error {
+	if m.Type == PaymentLinkTypeDonation {
+		return nil
+	}
 
-	if err := validate.RequiredString("price", "body", m.Price); err != nil {
+	if m.Price == nil {
+		return validate.RequiredString("price", "body", "")
+	}
+
+	if err := validate.RequiredString("price", "body", *m.Price); err != nil {
 		return err
 	}
 
@@ -238,6 +253,49 @@ func (m *PaymentLink) validateSuccessAction(formats strfmt.Registry) error {
 func (m *PaymentLink) validateURL(formats strfmt.Registry) error {
 
 	if err := validate.RequiredString("url", "body", m.URL); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var paymentLinkTypeTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["payment","donation"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		paymentLinkTypeTypePropEnum = append(paymentLinkTypeTypePropEnum, v)
+	}
+}
+
+const (
+
+	// PaymentLinkTypePayment captures enum value "payment"
+	PaymentLinkTypePayment string = "payment"
+
+	// PaymentLinkTypeDonation captures enum value "donation"
+	PaymentLinkTypeDonation string = "donation"
+)
+
+// prop value enum
+func (m *PaymentLink) validateTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, paymentLinkTypeTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *PaymentLink) validateType(formats strfmt.Registry) error {
+
+	if err := validate.RequiredString("type", "body", m.Type); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateTypeEnum("type", "body", m.Type); err != nil {
 		return err
 	}
 

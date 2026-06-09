@@ -34,6 +34,14 @@ const PaymentLinksPage: React.FC = () => {
         listPaymentLinks.isFetching ||
         deletePaymentLink.isLoading;
 
+    const renderPaymentLinkPrice = (record: PaymentLink) => {
+        if (record.type === "donation") {
+            return `Donation in ${record.currency}`;
+        }
+
+        return `${record.currency in CURRENCY_SYMBOL ? CURRENCY_SYMBOL[record.currency] : ""}${record.price}`;
+    };
+
     const openNotification = (title: string, description: string) => {
         api.info({
             message: title,
@@ -93,7 +101,7 @@ const PaymentLinksPage: React.FC = () => {
             width: "min-content",
             render: (_, record) => (
                 <Row align="middle" justify="space-between">
-                    {`${record.currency in CURRENCY_SYMBOL ? CURRENCY_SYMBOL[record.currency] : ""}${record.price}`}
+                    {renderPaymentLinkPrice(record)}
                     <Space onClick={(e) => e.stopPropagation()}>
                         <Dropdown
                             menu={{
@@ -182,10 +190,12 @@ const PaymentLinksPage: React.FC = () => {
                 message={
                     <>
                         <Typography.Text>
-                            Links are the easy way of accepting payments from your customers. Each link
+                            Links are the easy way of accepting payments from your customers. Each fixed link
                         </Typography.Text>
                         <br />
-                        <Typography.Text>represents a pre-defined payment with amount and description.</Typography.Text>
+                        <Typography.Text>
+                            represents a pre-defined payment. Donation links let customers choose their amount.
+                        </Typography.Text>
                     </>
                 }
                 type="info"

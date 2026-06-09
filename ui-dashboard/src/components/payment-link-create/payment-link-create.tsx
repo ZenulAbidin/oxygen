@@ -1,7 +1,7 @@
 import * as React from "react";
 import {v4 as uuidv4} from "uuid";
-import {Form, Input, Button, Space, Select, InputNumber, FormInstance} from "antd";
-import {PaymentLinkParams, CURRENCY, PaymentLinkAction} from "src/types";
+import {Form, Input, Button, Space, Select, InputNumber, FormInstance, Radio} from "antd";
+import {PaymentLinkParams, CURRENCY, PaymentLinkAction, PaymentLinkType} from "src/types";
 import {sleep} from "src/utils";
 import LinkInput from "src/components/link-input/link-input";
 
@@ -11,13 +11,14 @@ interface Props {
     isFormSubmitting: boolean;
 }
 
-const minPrice = 0;
+const minPrice = 0.01;
 const maxPrice = 10 ** 7;
 const linkPrefix = "https://";
 
 const PaymentLinkForm: React.FC<Props> = (props: Props) => {
     const [form] = Form.useForm<PaymentLinkParams>();
     const [linkAction, changeLinkAction] = React.useState<PaymentLinkAction>("showMessage");
+    const [linkType, changeLinkType] = React.useState<PaymentLinkType>("payment");
 
     const onSubmit = async (values: PaymentLinkParams) => {
         if (linkAction === "redirect") {
@@ -28,6 +29,10 @@ const PaymentLinkForm: React.FC<Props> = (props: Props) => {
         }
 
         values.successAction = linkAction;
+        values.type = linkType;
+        if (linkType === "donation") {
+            values.price = undefined;
+        }
 
         await props.onFinish(values, form);
     };
@@ -40,34 +45,62 @@ const PaymentLinkForm: React.FC<Props> = (props: Props) => {
     };
 
     return (
-        <Form<PaymentLinkParams> form={form} initialValues={{id: uuidv4()}} onFinish={onSubmit} layout="vertical">
+        <Form<PaymentLinkParams>
+            form={form}
+            initialValues={{id: uuidv4(), type: "payment", currency: "USD"}}
+            onFinish={onSubmit}
+            layout="vertical"
+        >
             <Form.Item required rules={[{required: true, message: "Field is required"}]} label="Name" name="name">
                 <Input placeholder="My new link" />
             </Form.Item>
-            <Space>
-                <Form.Item
-                    label="Price"
-                    name="price"
-                    required
-                    rules={[
-                        {required: true, message: "Field is required"},
-                        {
-                            type: "number",
-                            message: "Incorrect number value"
+            <Form.Item label="Link type" name="type">
+                <Radio.Group
+                    value={linkType}
+                    optionType="button"
+                    buttonStyle="solid"
+                    onChange={(event) => {
+                        const nextType = event.target.value as PaymentLinkType;
+                        changeLinkType(nextType);
+                        if (nextType === "donation") {
+                            form.setFieldValue("price", undefined);
                         }
-                    ]}
-                    validateFirst
-                    validateTrigger={["onChange", "onBlur"]}
+                    }}
                 >
-                    <InputNumber style={{width: "100%"}} precision={2} min={minPrice} max={maxPrice} />
+                    <Radio.Button value="payment">Fixed amount</Radio.Button>
+                    <Radio.Button value="donation">Donation</Radio.Button>
+                </Radio.Group>
+            </Form.Item>
+            {linkType === "payment" ? (
+                <Space>
+                    <Form.Item
+                        label="Price"
+                        name="price"
+                        required
+                        rules={[
+                            {required: true, message: "Field is required"},
+                            {
+                                type: "number",
+                                message: "Incorrect number value"
+                            }
+                        ]}
+                        validateFirst
+                        validateTrigger={["onChange", "onBlur"]}
+                    >
+                        <InputNumber style={{width: "100%"}} precision={2} min={minPrice} max={maxPrice} />
+                    </Form.Item>
+                    <Form.Item name="currency" style={{width: 80, marginTop: "30px"}} initialValue="USD">
+                        <Select
+                            style={{width: 80}}
+                            options={CURRENCY.map((currency) => ({value: currency, label: currency}))}
+                        />
+                    </Form.Item>
+                </Space>
+            ) : (
+                <Form.Item label="Currency" name="currency" initialValue="USD" style={{width: 120}}>
+                    <Select style={{width: 120}} options={CURRENCY.map((currency) => ({value: currency, label: currency}))} />
                 </Form.Item>
-                <Form.Item name="currency" style={{width: 80, marginTop: "30px"}} initialValue="USD">
-                    <Select
-                        style={{width: 80}}
-                        options={CURRENCY.map((currency) => ({value: currency, label: currency}))}
-                    />
-                </Form.Item>
-            </Space>
+            )}
             <Form.Item label="Description" name="description" style={{width: 300}}>
                 <Input.TextArea placeholder="Your description" rows={2} />
             </Form.Item>

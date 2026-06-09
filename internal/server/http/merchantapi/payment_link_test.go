@@ -11,6 +11,7 @@ import (
 	"github.com/oxygenpay/oxygen/pkg/api-dashboard/v1/model"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // const paramPaymentLinkID = "paymentLinkId"
@@ -72,6 +73,21 @@ func TestPaymentLinkRoutes(t *testing.T) {
 				},
 				assert: func(t *testing.T, link model.PaymentLink) {
 					assert.Empty(t, link.RedirectURL)
+					assert.Equal(t, "message", *link.SuccessMessage)
+				},
+			},
+			{
+				name: "USD/donation/message",
+				req: model.CreatePaymentLinkRequest{
+					Type:           model.CreatePaymentLinkRequestTypeDonation,
+					Currency:       "USD",
+					Name:           "test",
+					Description:    util.Ptr("description"),
+					SuccessAction:  string(payment.SuccessActionShowMessage),
+					SuccessMessage: util.Ptr("message"),
+				},
+				assert: func(t *testing.T, link model.PaymentLink) {
+					assert.Nil(t, link.Price)
 					assert.Equal(t, "message", *link.SuccessMessage)
 				},
 			},
@@ -162,7 +178,13 @@ func TestPaymentLinkRoutes(t *testing.T) {
 				assert.Equal(t, tt.req.Description, body.Description)
 
 				assert.Equal(t, tt.req.Currency, body.Currency)
-				assert.Equal(t, tt.req.Price, lo.Must(strconv.ParseFloat(body.Price, 64)))
+				assert.Equal(t, tt.req.LinkType(), body.Type)
+				if tt.req.LinkType() == model.CreatePaymentLinkRequestTypeDonation {
+					assert.Nil(t, body.Price)
+				} else {
+					require.NotNil(t, body.Price)
+					assert.Equal(t, tt.req.Price, lo.Must(strconv.ParseFloat(*body.Price, 64)))
+				}
 
 				assert.Equal(t, tt.req.SuccessAction, body.SuccessAction)
 

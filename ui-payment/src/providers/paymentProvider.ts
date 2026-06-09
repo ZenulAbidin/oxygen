@@ -35,8 +35,8 @@ const paymentProvider = {
         return response.data;
     },
 
-    async createPaymentFromLink(paymentLinkId: string): Promise<string> {
-        const response = await apiRequest.post(PAYMENT_BASE_PATH + `/payment-link/${paymentLinkId}/payment`);
+    async createPaymentFromLink(paymentLinkId: string, params?: {price: number}): Promise<string> {
+        const response = await apiRequest.post(PAYMENT_BASE_PATH + `/payment-link/${paymentLinkId}/payment`, params);
         return response.data?.id;
     },
 

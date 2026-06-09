@@ -21,6 +21,7 @@ INSERT INTO payment_links (
   created_at,
   updated_at,
   merchant_id,
+  type,
   name,
   description,
   price,
@@ -30,8 +31,8 @@ INSERT INTO payment_links (
   redirect_url,
   success_message,
   is_test
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, uuid, slug, created_at, updated_at, merchant_id, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+RETURNING id, uuid, slug, created_at, updated_at, merchant_id, type, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test
 `
 
 type CreatePaymentLinkParams struct {
@@ -40,6 +41,7 @@ type CreatePaymentLinkParams struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	MerchantID     int64
+	Type           string
 	Name           string
 	Description    string
 	Price          pgtype.Numeric
@@ -58,6 +60,7 @@ func (q *Queries) CreatePaymentLink(ctx context.Context, arg CreatePaymentLinkPa
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.MerchantID,
+		arg.Type,
 		arg.Name,
 		arg.Description,
 		arg.Price,
@@ -76,6 +79,7 @@ func (q *Queries) CreatePaymentLink(ctx context.Context, arg CreatePaymentLinkPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.MerchantID,
+		&i.Type,
 		&i.Name,
 		&i.Description,
 		&i.Price,
@@ -104,7 +108,7 @@ func (q *Queries) DeletePaymentLinkByPublicID(ctx context.Context, arg DeletePay
 }
 
 const getPaymentLinkByID = `-- name: GetPaymentLinkByID :one
-select id, uuid, slug, created_at, updated_at, merchant_id, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where merchant_id = $1 and id = $2 limit 1
+select id, uuid, slug, created_at, updated_at, merchant_id, type, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where merchant_id = $1 and id = $2 limit 1
 `
 
 type GetPaymentLinkByIDParams struct {
@@ -122,6 +126,7 @@ func (q *Queries) GetPaymentLinkByID(ctx context.Context, arg GetPaymentLinkByID
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.MerchantID,
+		&i.Type,
 		&i.Name,
 		&i.Description,
 		&i.Price,
@@ -136,7 +141,7 @@ func (q *Queries) GetPaymentLinkByID(ctx context.Context, arg GetPaymentLinkByID
 }
 
 const getPaymentLinkByPublicID = `-- name: GetPaymentLinkByPublicID :one
-select id, uuid, slug, created_at, updated_at, merchant_id, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where merchant_id = $1 and uuid = $2 limit 1
+select id, uuid, slug, created_at, updated_at, merchant_id, type, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where merchant_id = $1 and uuid = $2 limit 1
 `
 
 type GetPaymentLinkByPublicIDParams struct {
@@ -154,6 +159,7 @@ func (q *Queries) GetPaymentLinkByPublicID(ctx context.Context, arg GetPaymentLi
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.MerchantID,
+		&i.Type,
 		&i.Name,
 		&i.Description,
 		&i.Price,
@@ -168,7 +174,7 @@ func (q *Queries) GetPaymentLinkByPublicID(ctx context.Context, arg GetPaymentLi
 }
 
 const getPaymentLinkBySlug = `-- name: GetPaymentLinkBySlug :one
-select id, uuid, slug, created_at, updated_at, merchant_id, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where slug = $1 limit 1
+select id, uuid, slug, created_at, updated_at, merchant_id, type, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where slug = $1 limit 1
 `
 
 func (q *Queries) GetPaymentLinkBySlug(ctx context.Context, slug string) (PaymentLink, error) {
@@ -181,6 +187,7 @@ func (q *Queries) GetPaymentLinkBySlug(ctx context.Context, slug string) (Paymen
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.MerchantID,
+		&i.Type,
 		&i.Name,
 		&i.Description,
 		&i.Price,
@@ -195,7 +202,7 @@ func (q *Queries) GetPaymentLinkBySlug(ctx context.Context, slug string) (Paymen
 }
 
 const listPaymentLinks = `-- name: ListPaymentLinks :many
-select id, uuid, slug, created_at, updated_at, merchant_id, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where merchant_id = $1 order by id desc limit $2
+select id, uuid, slug, created_at, updated_at, merchant_id, type, name, description, price, decimals, currency, success_action, redirect_url, success_message, is_test from payment_links where merchant_id = $1 order by id desc limit $2
 `
 
 type ListPaymentLinksParams struct {
@@ -219,6 +226,7 @@ func (q *Queries) ListPaymentLinks(ctx context.Context, arg ListPaymentLinksPara
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.MerchantID,
+			&i.Type,
 			&i.Name,
 			&i.Description,
 			&i.Price,

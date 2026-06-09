@@ -84,15 +84,20 @@ func (h *Handler) CreatePaymentLink(c echo.Context) error {
 		return common.ValidationErrorItemResponse(c, "currency", "invalid currency")
 	}
 
-	price, err := money.FiatFromFloat64(currency, req.Price)
-	if err != nil {
-		return common.ValidationErrorItemResponse(c, "price", "price should be between %.2f and %.0f", money.FiatMin, money.FiatMax)
+	var price money.Money
+	if req.LinkType() == model.CreatePaymentLinkRequestTypePayment {
+		price, err = money.FiatFromFloat64(currency, req.Price)
+		if err != nil {
+			return common.ValidationErrorItemResponse(c, "price", "price should be between %.2f and %.0f", money.FiatMin, money.FiatMax)
+		}
 	}
 
 	mt := middleware.ResolveMerchant(c)
 
 	link, err := h.payments.CreatePaymentLink(ctx, mt.ID, payment.CreateLinkProps{
+		Type:           payment.LinkType(req.LinkType()),
 		Name:           req.Name,
+		Currency:       currency,
 		Price:          price,
 		Description:    req.Description,
 		SuccessAction:  payment.SuccessAction(req.SuccessAction),
@@ -120,11 +125,20 @@ func linkToResponse(link *payment.Link) *model.PaymentLink {
 		Name:        link.Name,
 		Description: link.Description,
 
-		Currency: link.Price.Ticker(),
-		Price:    link.Price.String(),
+		Type:     link.Type.String(),
+		Currency: link.Currency.String(),
+		Price:    linkPriceToResponse(link),
 
 		SuccessAction:  string(link.SuccessAction),
 		RedirectURL:    link.RedirectURL,
 		SuccessMessage: link.SuccessMessage,
 	}
+}
+
+func linkPriceToResponse(link *payment.Link) *string {
+	if link.Type == payment.LinkTypeDonation {
+		return nil
+	}
+
+	return util.Ptr(link.Price.String())
 }

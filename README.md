@@ -49,7 +49,7 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 - Self-hosted
 - Non-custodial
 - Built-in multi-tenancy
-- Create payment links for predefined invoices
+- Create payment links for predefined invoices and donations
 - Automatic hot wallets management
 - Built-in KMS (Key Management Service) for securely storing wallet keys
 - Nice and simple merchant dashboard; sleek payment UI
@@ -87,7 +87,7 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 
 - [x] Support for USDC
 - [x] Support for Binance Smart Chain (BNB, BUSD)
-- [ ] Donations feature
+- [x] Donations feature
 - [ ] Support for [WalletConnect](https://walletconnect.com/)
 - [ ] SDKs for (Python, JavaScript, PHP, etc...)
 - [ ] Support for all major ETH Layer 2 Chains

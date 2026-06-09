@@ -69,7 +69,8 @@ interface PaymentLink {
     currency: Currency;
     description?: string;
     merchantName: string;
-    price: number;
+    price?: number | null;
+    type: "payment" | "donation";
 }
 
 export type {CurrencyConvertResult, PaymentMethod, Payment, Customer, PaymentLink, ObservedPaymentTransaction};

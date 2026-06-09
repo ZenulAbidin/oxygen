@@ -14,7 +14,8 @@ interface Props {
 
 const emptyState: PaymentLink = {
     id: "loading",
-    price: 0,
+    price: "0",
+    type: "payment",
     successAction: "redirect",
     createdAt: "loading",
     currency: "USD",
@@ -26,6 +27,14 @@ const emptyState: PaymentLink = {
 };
 
 const b = bevis("payment-desc-card");
+
+const renderPaymentLinkPrice = (data: PaymentLink) => {
+    if (data.type === "donation") {
+        return `Donor chooses amount in ${data.currency}`;
+    }
+
+    return `${CURRENCY_SYMBOL[data.currency]}${data.price}`;
+};
 
 const PaymentLinkDescCard: React.FC<Props> = ({data, openNotificationFunc}) => {
     React.useEffect(() => {
@@ -46,8 +55,11 @@ const PaymentLinkDescCard: React.FC<Props> = ({data, openNotificationFunc}) => {
                         <Descriptions.Item span={3} label={<span className={b("item-title")}>Created at</span>}>
                             <TimeLabel time={data.createdAt} />
                         </Descriptions.Item>
-                        <Descriptions.Item span={3} label={<span className={b("item-title")}>Price</span>}>
-                            {`${CURRENCY_SYMBOL[data.currency]}${data.price}`}
+                        <Descriptions.Item span={3} label={<span className={b("item-title")}>Type</span>}>
+                            {data.type === "donation" ? "Donation" : "Fixed amount"}
+                        </Descriptions.Item>
+                        <Descriptions.Item span={3} label={<span className={b("item-title")}>Amount</span>}>
+                            {renderPaymentLinkPrice(data)}
                         </Descriptions.Item>
                         <Descriptions.Item span={3} label={<span className={b("item-title")}>Description</span>}>
                             {data.description ?? "Not provided"}

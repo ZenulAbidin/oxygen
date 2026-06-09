@@ -11,7 +11,7 @@ parameters:
 definitions:
   PaymentLink:
     type: object
-    required: [ currency, price, merchantName ]
+    required: [ currency, merchantName, type ]
     properties:
       currency:
         type: string
@@ -20,8 +20,13 @@ definitions:
         x-nullable: false
       price:
         type: number
-        description: Price
+        description: Price for fixed payment links. Donation links return null.
         example: 39.90
+        x-nullable: true
+      type:
+        type: string
+        description: Link type
+        enum: [ payment, donation ]
         x-nullable: false
       merchantName:
         type: string
@@ -47,6 +52,12 @@ definitions:
 
   CreatePaymentFromLinkRequest:
     type: object
+    properties:
+      price:
+        type: number
+        description: Donation amount in the link fiat currency. Required only for donation links.
+        minimum: 0.01
+        example: 25.00
 
 paths:
   /payment-link/{paymentLinkSlug}:
@@ -75,7 +86,7 @@ paths:
         - $ref: '#/parameters/PaymentLinkSlug'
         - in: body
           name: data
-          required: true
+          required: false
           schema:
             $ref: '#/definitions/CreatePaymentFromLinkRequest'
       responses:

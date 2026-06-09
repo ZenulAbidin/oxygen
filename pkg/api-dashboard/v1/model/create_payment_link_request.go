@@ -38,7 +38,6 @@ type CreatePaymentLinkRequest struct {
 
 	// Price in fiat currency
 	// Example: 29.9
-	// Required: true
 	// Minimum: 0.01
 	Price float64 `json:"price"`
 
@@ -59,6 +58,10 @@ type CreatePaymentLinkRequest struct {
 	// Max Length: 250
 	// Min Length: 4
 	SuccessMessage *string `json:"successMessage"`
+
+	// Link type
+	// Enum: [payment donation]
+	Type string `json:"type"`
 }
 
 // Validate validates this create payment link request
@@ -82,6 +85,10 @@ func (m *CreatePaymentLinkRequest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateSuccessMessage(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -152,12 +159,65 @@ func (m *CreatePaymentLinkRequest) validateName(formats strfmt.Registry) error {
 }
 
 func (m *CreatePaymentLinkRequest) validatePrice(formats strfmt.Registry) error {
+	if m.LinkType() == CreatePaymentLinkRequestTypeDonation {
+		return nil
+	}
 
 	if err := validate.Required("price", "body", float64(m.Price)); err != nil {
 		return err
 	}
 
 	if err := validate.Minimum("price", "body", m.Price, 0.01, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var createPaymentLinkRequestTypeTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["payment","donation"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		createPaymentLinkRequestTypeTypePropEnum = append(createPaymentLinkRequestTypeTypePropEnum, v)
+	}
+}
+
+const (
+
+	// CreatePaymentLinkRequestTypePayment captures enum value "payment"
+	CreatePaymentLinkRequestTypePayment string = "payment"
+
+	// CreatePaymentLinkRequestTypeDonation captures enum value "donation"
+	CreatePaymentLinkRequestTypeDonation string = "donation"
+)
+
+func (m *CreatePaymentLinkRequest) LinkType() string {
+	if m.Type == "" {
+		return CreatePaymentLinkRequestTypePayment
+	}
+
+	return m.Type
+}
+
+// prop value enum
+func (m *CreatePaymentLinkRequest) validateTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, createPaymentLinkRequestTypeTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *CreatePaymentLinkRequest) validateType(formats strfmt.Registry) error {
+	if swag.IsZero(m.Type) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateTypeEnum("type", "body", m.Type); err != nil {
 		return err
 	}
 

@@ -3,9 +3,11 @@ package payment
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	"github.com/oxygenpay/oxygen/internal/money"
@@ -23,8 +25,10 @@ type Link struct {
 	UpdatedAt time.Time
 
 	MerchantID int64
+	Type       LinkType
 	Name       string
 
+	Currency    money.FiatCurrency
 	Price       money.Money
 	Description *string
 
@@ -35,6 +39,13 @@ type Link struct {
 	IsTest bool
 }
 
+type LinkType string
+
+const (
+	LinkTypePayment  LinkType = "payment"
+	LinkTypeDonation LinkType = "donation"
+)
+
 type SuccessAction string
 
 const (
@@ -43,8 +54,10 @@ const (
 )
 
 type CreateLinkProps struct {
+	Type LinkType
 	Name string
 
+	Currency    money.FiatCurrency
 	Price       money.Money
 	Description *string
 
@@ -124,6 +137,7 @@ func (s *Service) GetPaymentLinkByID(ctx context.Context, merchantID, id int64) 
 }
 
 func (s *Service) CreatePaymentLink(ctx context.Context, merchantID int64, props CreateLinkProps) (*Link, error) {
+	props.fillDefaults()
 	if err := props.validate(); err != nil {
 		return nil, err
 	}
@@ -138,17 +152,25 @@ func (s *Service) CreatePaymentLink(ctx context.Context, merchantID int64, props
 		description = *props.Description
 	}
 
+	var price pgtype.Numeric
+	if props.Type == LinkTypePayment {
+		price = repository.MoneyToNumeric(props.Price)
+	} else {
+		price = pgtype.Numeric{Status: pgtype.Null}
+	}
+
 	link, err := s.repo.CreatePaymentLink(ctx, repository.CreatePaymentLinkParams{
 		Uuid:           uuid.New(),
 		Slug:           util.Strings.Random(8),
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		MerchantID:     merchantID,
+		Type:           props.Type.String(),
 		Name:           props.Name,
 		Description:    description,
-		Price:          repository.MoneyToNumeric(props.Price),
-		Decimals:       int32(props.Price.Decimals()),
-		Currency:       props.Price.Ticker(),
+		Price:          price,
+		Decimals:       int32(money.FiatDecimals),
+		Currency:       props.Currency.String(),
 		SuccessAction:  string(props.SuccessAction),
 		RedirectUrl:    repository.PointerStringToNullable(props.RedirectURL),
 		SuccessMessage: repository.PointerStringToNullable(props.SuccessMessage),
@@ -173,16 +195,30 @@ func (s *Service) DeletePaymentLinkByPublicID(ctx context.Context, merchantID in
 	})
 }
 
-func (s *Service) CreatePaymentFromLink(ctx context.Context, link *Link) (*Payment, error) {
+func (s *Service) CreatePaymentFromLink(ctx context.Context, link *Link, amount ...money.Money) (*Payment, error) {
+	price, err := linkPaymentAmount(link, amount...)
+	if err != nil {
+		return nil, err
+	}
+
 	props := CreatePaymentProps{
 		MerchantOrderUUID: uuid.New(),
-		Money:             link.Price,
+		Money:             price,
 		RedirectURL:       link.RedirectURL,
 		Description:       link.Description,
-		IsTest:            false,
+		IsTest:            link.IsTest,
 	}
 
 	return s.CreatePayment(ctx, link.MerchantID, props, FromLink(link))
+}
+
+func (p *CreateLinkProps) fillDefaults() {
+	if p.Type == "" {
+		p.Type = LinkTypePayment
+	}
+	if p.Currency == "" && p.Price.Ticker() != "" {
+		p.Currency = money.FiatCurrency(p.Price.Ticker())
+	}
 }
 
 func (p CreateLinkProps) validate() error {
@@ -190,17 +226,37 @@ func (p CreateLinkProps) validate() error {
 		return errors.Wrap(ErrLinkValidation, "name required")
 	}
 
-	if p.Price.Type() != money.Fiat {
+	switch p.Type {
+	case LinkTypePayment:
+		if p.Price.Type() != money.Fiat {
+			return errors.Wrap(ErrLinkValidation, "invalid currency")
+		}
+		if p.Currency != "" && p.Price.Ticker() != p.Currency.String() {
+			return errors.Wrap(ErrLinkValidation, "price currency should match link currency")
+		}
+
+		float, err := p.Price.FiatToFloat64()
+		if err != nil {
+			return errors.Wrap(ErrLinkValidation, "invalid price")
+		}
+
+		if float <= 0.0 {
+			return errors.Wrap(ErrLinkValidation, "price can't be zero or negative")
+		}
+	case LinkTypeDonation:
+		if _, err := money.MakeFiatCurrency(p.Currency.String()); err != nil {
+			return errors.Wrap(ErrLinkValidation, "invalid currency")
+		}
+	default:
+		return errors.Wrap(ErrLinkValidation, "invalid link type")
+	}
+
+	if p.Currency == "" {
 		return errors.Wrap(ErrLinkValidation, "invalid currency")
 	}
 
-	float, err := p.Price.FiatToFloat64()
-	if err != nil {
-		return errors.Wrap(ErrLinkValidation, "invalid price")
-	}
-
-	if float <= 0.0 {
-		return errors.Wrap(ErrLinkValidation, "price can't be zero or negative")
+	if _, err := money.MakeFiatCurrency(p.Currency.String()); err != nil {
+		return errors.Wrap(ErrLinkValidation, "invalid currency")
 	}
 
 	switch p.SuccessAction {
@@ -228,22 +284,80 @@ func (p CreateLinkProps) validate() error {
 	return nil
 }
 
+func linkPaymentAmount(link *Link, amount ...money.Money) (money.Money, error) {
+	switch link.Type {
+	case LinkTypePayment:
+		if len(amount) > 0 {
+			return money.Money{}, errors.Wrap(ErrLinkValidation, "amount should not be supplied for fixed payment links")
+		}
+
+		return link.Price, nil
+	case LinkTypeDonation:
+		if len(amount) == 0 {
+			return money.Money{}, errors.Wrap(ErrLinkValidation, "donation amount required")
+		}
+		if len(amount) > 1 {
+			return money.Money{}, errors.Wrap(ErrLinkValidation, "too many donation amounts")
+		}
+		if amount[0].Type() != money.Fiat || amount[0].Ticker() != link.Currency.String() {
+			return money.Money{}, errors.Wrap(ErrLinkValidation, "invalid donation currency")
+		}
+
+		float, err := amount[0].FiatToFloat64()
+		if err != nil {
+			return money.Money{}, errors.Wrap(ErrLinkValidation, "invalid donation amount")
+		}
+		if float <= 0.0 {
+			return money.Money{}, errors.Wrap(ErrLinkValidation, "donation amount can't be zero or negative")
+		}
+
+		return amount[0], nil
+	default:
+		return money.Money{}, errors.Wrap(ErrLinkValidation, "invalid link type")
+	}
+}
+
+func (t LinkType) String() string {
+	if t == "" {
+		return string(LinkTypePayment)
+	}
+
+	return string(t)
+}
+
+func linkType(raw string) LinkType {
+	switch LinkType(raw) {
+	case LinkTypeDonation:
+		return LinkTypeDonation
+	default:
+		return LinkTypePayment
+	}
+}
+
+func nullableLinkPrice(link repository.PaymentLink, currency money.FiatCurrency) (money.Money, error) {
+	if link.Price.Status == pgtype.Null {
+		return money.NewFromBigInt(money.Fiat, currency.String(), big.NewInt(0), money.FiatDecimals)
+	}
+
+	bigInt, err := repository.NumericToBigInt(link.Price)
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	return money.NewFromBigInt(money.Fiat, currency.String(), bigInt, int64(link.Decimals))
+}
+
 func (s *Service) linkURL(slug string) string {
 	return fmt.Sprintf("%s/link/%s", s.basePath, slug)
 }
 
 func (s *Service) entryToLink(link repository.PaymentLink) (*Link, error) {
-	bigInt, err := repository.NumericToBigInt(link.Price)
-	if err != nil {
-		return nil, err
-	}
-
 	currency, err := money.MakeFiatCurrency(link.Currency)
 	if err != nil {
 		return nil, err
 	}
 
-	price, err := money.NewFromBigInt(money.Fiat, currency.String(), bigInt, int64(link.Decimals))
+	price, err := nullableLinkPrice(link, currency)
 	if err != nil {
 		return nil, err
 	}
@@ -263,8 +377,10 @@ func (s *Service) entryToLink(link repository.PaymentLink) (*Link, error) {
 		UpdatedAt: link.UpdatedAt,
 
 		MerchantID: link.MerchantID,
+		Type:       linkType(link.Type),
 		Name:       link.Name,
 
+		Currency:    currency,
 		Price:       price,
 		Description: desc,
 

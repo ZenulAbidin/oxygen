@@ -116,6 +116,7 @@ type PaymentLink struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	MerchantID     int64
+	Type           string
 	Name           string
 	Description    string
 	Price          pgtype.Numeric
