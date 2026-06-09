@@ -75,6 +75,10 @@ func TestHandlers(t *testing.T) {
 			assert.NoError(t, res.JSON(&body))
 			assert.Len(t, body.AvailableMethods, 1)
 			assert.Equal(t, "ETH", body.AvailableMethods[0].Ticker)
+			assert.Equal(t, string(money.Coin), body.AvailableMethods[0].CurrencyType)
+			assert.Equal(t, "1", body.AvailableMethods[0].NetworkID)
+			assert.False(t, body.AvailableMethods[0].IsTest)
+			assert.Empty(t, body.AvailableMethods[0].TokenContractAddress)
 		})
 	})
 
@@ -212,6 +216,8 @@ func TestHandlers(t *testing.T) {
 			assert.Equal(t, currency.DisplayName(), body.PaymentMethod.DisplayName)
 			assert.Equal(t, currency.NetworkID, body.PaymentMethod.NetworkID)
 			assert.False(t, body.PaymentMethod.IsTest)
+			assert.Equal(t, string(currency.Type), body.PaymentMethod.CurrencyType)
+			assert.Empty(t, body.PaymentMethod.TokenContractAddress)
 
 			t.Run("Returns updated payment method", func(t *testing.T) {
 				// ARRANGE
@@ -244,6 +250,8 @@ func TestHandlers(t *testing.T) {
 				assert.NotEqual(t, body.PaymentMethod.Ticker, body2.PaymentMethod.Ticker)
 				assert.Equal(t, currency.NetworkID, body2.PaymentMethod.NetworkID)
 				assert.False(t, body2.PaymentMethod.IsTest)
+				assert.Equal(t, string(currency.Type), body2.PaymentMethod.CurrencyType)
+				assert.Empty(t, body2.PaymentMethod.TokenContractAddress)
 			})
 		})
 
@@ -892,6 +900,9 @@ func TestHandlers(t *testing.T) {
 					var body model.PaymentMethod
 					assert.NoError(t, res.JSON(&body))
 					assert.Equal(t, testCase.ticker, body.Ticker)
+					assert.Equal(t, string(currency.Type), body.CurrencyType)
+					assert.Equal(t, currency.ChooseNetwork(p.IsTest), body.NetworkID)
+					assert.Equal(t, currency.ChooseContractAddress(p.IsTest), body.TokenContractAddress)
 				})
 			}
 		})

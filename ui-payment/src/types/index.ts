@@ -11,9 +11,13 @@ interface CurrencyConvertResult {
 interface PaymentMethod {
     blockchain: string;
     blockchainName: string;
+    currencyType: "coin" | "token";
     displayName: string;
+    isTest: boolean;
     name: string;
+    networkId: string;
     ticker: string;
+    tokenContractAddress: string;
 }
 
 interface Customer {
@@ -73,4 +77,12 @@ interface PaymentLink {
     type: "payment" | "donation";
 }
 
-export type {CurrencyConvertResult, PaymentMethod, Payment, Customer, PaymentLink, ObservedPaymentTransaction};
+export type {
+    CurrencyConvertResult,
+    PaymentMethod,
+    PaymentInfo,
+    Payment,
+    Customer,
+    PaymentLink,
+    ObservedPaymentTransaction
+};

@@ -23,14 +23,29 @@ type SupportedPaymentMethod struct {
 	// blockchain name
 	BlockchainName string `json:"blockchainName"`
 
+	// Currency type, either native coin or token
+	// Enum: [coin token]
+	// Example: token
+	CurrencyType string `json:"currencyType"`
+
 	// display name
 	DisplayName string `json:"displayName"`
+
+	// is test
+	IsTest bool `json:"isTest"`
 
 	// name
 	Name string `json:"name"`
 
+	// network Id
+	NetworkID string `json:"networkId"`
+
 	// ticker
 	Ticker string `json:"ticker"`
+
+	// Token contract address for token payment methods
+	// Example: 0xdac17f958d2ee523a2206206994597c13d831ec7
+	TokenContractAddress string `json:"tokenContractAddress"`
 }
 
 // Validate validates this supported payment method

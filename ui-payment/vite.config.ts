@@ -10,6 +10,9 @@ const rootPath = process.env.VITE_ROOTPATH ?? "/p/";
 // https://vitejs.dev/config/
 export default defineConfig({
     base: rootPath,
+    build: {
+        target: "es2022"
+    },
     resolve: {
         alias: {
             src: path.resolve(__dirname, "/src")

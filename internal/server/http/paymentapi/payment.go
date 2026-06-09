@@ -126,11 +126,15 @@ func (h *Handler) GetSupportedMethods(c echo.Context) error {
 	return c.JSON(http.StatusOK, &model.SupportedPaymentMethods{
 		AvailableMethods: util.MapSlice(availableOnly, func(sc merchant.SupportedCurrency) *model.SupportedPaymentMethod {
 			return &model.SupportedPaymentMethod{
-				Blockchain:     sc.Currency.Blockchain.String(),
-				BlockchainName: sc.Currency.BlockchainName,
-				DisplayName:    sc.Currency.DisplayName(),
-				Name:           sc.Currency.Name,
-				Ticker:         sc.Currency.Ticker,
+				Blockchain:           sc.Currency.Blockchain.String(),
+				BlockchainName:       sc.Currency.BlockchainName,
+				CurrencyType:         string(sc.Currency.Type),
+				DisplayName:          sc.Currency.DisplayName(),
+				Name:                 sc.Currency.Name,
+				Ticker:               sc.Currency.Ticker,
+				NetworkID:            sc.Currency.ChooseNetwork(p.IsTest),
+				IsTest:               p.IsTest,
+				TokenContractAddress: sc.Currency.ChooseContractAddress(p.IsTest),
 			}
 		}),
 	})
@@ -236,13 +240,15 @@ func customerToResponse(c *payment.Customer) *model.Customer {
 
 func paymentMethodToResponse(m *payment.Method) *model.PaymentMethod {
 	return &model.PaymentMethod{
-		Blockchain:     m.Currency.Blockchain.String(),
-		BlockchainName: m.Currency.BlockchainName,
-		DisplayName:    m.Currency.DisplayName(),
-		Name:           m.Currency.Name,
-		Ticker:         m.Currency.Ticker,
-		NetworkID:      m.NetworkID,
-		IsTest:         m.IsTest,
+		Blockchain:           m.Currency.Blockchain.String(),
+		BlockchainName:       m.Currency.BlockchainName,
+		CurrencyType:         string(m.Currency.Type),
+		DisplayName:          m.Currency.DisplayName(),
+		Name:                 m.Currency.Name,
+		Ticker:               m.Currency.Ticker,
+		NetworkID:            m.NetworkID,
+		IsTest:               m.IsTest,
+		TokenContractAddress: m.Currency.ChooseContractAddress(m.IsTest),
 	}
 }
 

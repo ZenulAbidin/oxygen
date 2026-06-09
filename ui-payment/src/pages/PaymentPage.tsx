@@ -15,6 +15,7 @@ import ConfirmationProgress from "src/components/ConfirmationProgress";
 import DropDown, {DropDownItem} from "src/components/DropDown";
 import renderConvertedResult from "src/utils/renderConvertedResult";
 import {isNetworkError} from "src/utils/apiRequest";
+import {canPayWithWalletConnect, sendWalletConnectPayment} from "src/utils/walletConnectPayment";
 
 const schema = Yup.object({
     email: Yup.string().email().required("Please fill an email")
@@ -23,6 +24,8 @@ const schema = Yup.object({
 interface EmailForm {
     email: string;
 }
+
+type WalletConnectState = "idle" | "connecting" | "submitted" | "error";
 
 const logNonNetworkError = (message: string, error: unknown) => {
     if (isNetworkError(error)) {
@@ -40,6 +43,9 @@ const PaymentPage: React.FC = () => {
     const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>();
     const [convertResult, setConvertResult] = React.useState<CurrencyConvertResult>();
     const [availableMethods, setAvailableMethods] = React.useState<PaymentMethod[]>([]);
+    const [walletConnectState, setWalletConnectState] = React.useState<WalletConnectState>("idle");
+    const [walletConnectError, setWalletConnectError] = React.useState<string>();
+    const [walletConnectTxHash, setWalletConnectTxHash] = React.useState<string>();
 
     const updatePayment = React.useCallback(async () => {
         if (!payment?.id) {
@@ -158,6 +164,12 @@ const PaymentPage: React.FC = () => {
         return () => window.clearInterval(timerId);
     }, [payment?.id, payment?.isLocked, payment?.paymentInfo?.status, updatePayment]);
 
+    React.useEffect(() => {
+        setWalletConnectState("idle");
+        setWalletConnectError(undefined);
+        setWalletConnectTxHash(undefined);
+    }, [payment?.id, payment?.paymentMethod?.ticker]);
+
     const onSelectPaymentMethod = async (cryptoCurrency: string) => {
         if (
             !payment ||
@@ -200,6 +212,33 @@ const PaymentPage: React.FC = () => {
         } catch (error) {
             setEmailFilled(false);
             logNonNetworkError("Error occurred:", error);
+        }
+    };
+
+    const onWalletConnectPay = async () => {
+        const projectId = (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined)?.trim();
+
+        if (!payment?.paymentMethod || !payment.paymentInfo || !projectId) {
+            return;
+        }
+
+        setWalletConnectState("connecting");
+        setWalletConnectError(undefined);
+        setWalletConnectTxHash(undefined);
+
+        try {
+            const result = await sendWalletConnectPayment({
+                paymentMethod: payment.paymentMethod,
+                paymentInfo: payment.paymentInfo,
+                projectId
+            });
+            setWalletConnectTxHash(result.transactionHash);
+            setWalletConnectState("submitted");
+            await updatePayment();
+        } catch (error) {
+            setWalletConnectState("error");
+            setWalletConnectError(error instanceof Error ? error.message : "WalletConnect payment failed.");
+            logNonNetworkError("WalletConnect payment failed:", error);
         }
     };
 
@@ -278,6 +317,20 @@ const PaymentPage: React.FC = () => {
     const paymentWaitMessage = observedTransaction
         ? "Payment detected. Waiting for network confirmations."
         : "Waiting for payment. Please send required crypto amount to specified address below.";
+    const walletConnectProjectId = (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined)?.trim();
+    const walletConnectAvailable = Boolean(
+        payment?.paymentInfo?.status === "pending" &&
+            !observedTransaction &&
+            walletConnectProjectId &&
+            canPayWithWalletConnect(payment?.paymentMethod)
+    );
+    const walletConnectSubmitting = walletConnectState === "connecting";
+    const walletConnectSubmitted = walletConnectState === "submitted";
+    const walletConnectButtonText = walletConnectSubmitting
+        ? "Opening wallet..."
+        : walletConnectSubmitted
+        ? "Transaction submitted"
+        : "Pay with WalletConnect";
 
     return (
         <div className="relative">
@@ -337,6 +390,30 @@ const PaymentPage: React.FC = () => {
                         </div>
                     </div>
 
+                    {walletConnectAvailable && (
+                        <div className="w-full mb-6">
+                            <button
+                                type="button"
+                                onClick={onWalletConnectPay}
+                                disabled={walletConnectSubmitting || walletConnectSubmitted}
+                                className={`h-12 px-4 text-sm border rounded-xl transition w-full border-main-green-1 bg-main-green-1 text-white font-medium ${
+                                    walletConnectSubmitting || walletConnectSubmitted ? "opacity-60" : ""
+                                }`}
+                            >
+                                {walletConnectButtonText}
+                            </button>
+                            {walletConnectError && (
+                                <span className="block text-xs text-red-600 mt-2 break-words">
+                                    {walletConnectError}
+                                </span>
+                            )}
+                            {walletConnectTxHash && (
+                                <span className="block text-xs text-card-desc mt-2 break-all">
+                                    Transaction hash: {walletConnectTxHash}
+                                </span>
+                            )}
+                        </div>
+                    )}
                     <CopyButton
                         textToCopy={payment.paymentInfo.recipientAddress}
                         displayText={payment.paymentInfo.recipientAddress}

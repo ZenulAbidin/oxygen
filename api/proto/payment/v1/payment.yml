@@ -79,6 +79,17 @@ definitions:
       networkId:
         type: string
         x-omitempty: false
+      currencyType:
+        type: string
+        description: Currency type, either native coin or token
+        example: token
+        enum: [ coin, token ]
+        x-omitempty: false
+      tokenContractAddress:
+        type: string
+        description: Token contract address for token payment methods
+        example: 0xdac17f958d2ee523a2206206994597c13d831ec7
+        x-omitempty: false
       displayName:
         type: string
         x-omitempty: false
@@ -99,6 +110,23 @@ definitions:
         x-omitempty: false
       blockchainName:
         type: string
+        x-omitempty: false
+      isTest:
+        type: boolean
+        x-omitempty: false
+      networkId:
+        type: string
+        x-omitempty: false
+      currencyType:
+        type: string
+        description: Currency type, either native coin or token
+        example: token
+        enum: [ coin, token ]
+        x-omitempty: false
+      tokenContractAddress:
+        type: string
+        description: Token contract address for token payment methods
+        example: 0xdac17f958d2ee523a2206206994597c13d831ec7
         x-omitempty: false
       displayName:
         type: string
