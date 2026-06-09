@@ -202,15 +202,15 @@ func (app *App) RunScheduler() {
 
 	app.registerEventHandlers()
 
-	register("@every 30s", "checkIncomingTransactionsProgress", jobs.CheckIncomingTransactionsProgress, false)
+	register("@every 30s", "checkIncomingTransactionsProgress", jobs.CheckIncomingTransactionsProgress, false, false)
 
-	register("@every 10m", "performInternalWalletTransfer", jobs.PerformInternalWalletTransfer, true)
-	register("@every 2m", "checkInternalTransferProgress", jobs.CheckInternalTransferProgress, false)
+	register("@every 10m", "performInternalWalletTransfer", jobs.PerformInternalWalletTransfer, true, false)
+	register("@every 2m", "checkInternalTransferProgress", jobs.CheckInternalTransferProgress, false, false)
 
-	register("@every 10m", "performWithdrawalsCreation", jobs.PerformWithdrawalsCreation, true)
-	register("@every 2m", "checkWithdrawalsProgress", jobs.CheckWithdrawalsProgress, false)
+	register("@every 30s", "performWithdrawalsCreation", jobs.PerformWithdrawalsCreation, true, true)
+	register("@every 30s", "checkWithdrawalsProgress", jobs.CheckWithdrawalsProgress, false, true)
 
-	register("@every 2m", "cancelExpiredPayments", jobs.CancelExpiredPayments, false)
+	register("@every 2m", "cancelExpiredPayments", jobs.CancelExpiredPayments, false, false)
 }
 
 func (app *App) registerEventHandlers() {
@@ -237,7 +237,7 @@ func (app *App) registerEventHandlers() {
 	}
 }
 
-type registerFunc func(cronSpec, name string, job jobFunc, enableTableLogging bool)
+type registerFunc func(cronSpec, name string, job jobFunc, enableTableLogging bool, runOnStart bool)
 
 type jobFunc func(ctx context.Context) error
 
@@ -252,28 +252,25 @@ func makeCron(ctx context.Context, stdoutLogger *zerolog.Logger, jobLogger *log.
 		return nil
 	})
 
-	return func(cronSpec, name string, job jobFunc, enableTableLogging bool) {
-		// 1. Setup logger & context
-		jobID := fmt.Sprintf("%s-%d", name, time.Now().UTC().Unix())
+	return func(cronSpec, name string, job jobFunc, enableTableLogging bool, runOnStart bool) {
+		runJob := func() {
+			jobID := fmt.Sprintf("%s-%d", name, time.Now().UTC().Unix())
+			stdoutLogger := stdoutLogger.With().
+				Str("cron_spec", cronSpec).
+				Str("job", name).
+				Str("job_id", jobID).
+				Logger()
 
-		stdoutLogger := stdoutLogger.With().
-			Str("cron_spec", cronSpec).
-			Str("job", name).
-			Str("job_id", jobID).
-			Logger()
+			jobCtx := stdoutLogger.WithContext(ctx)
+			jobCtx = context.WithValue(jobCtx, scheduler.ContextJobID{}, jobID)
+			jobCtx = context.WithValue(jobCtx, scheduler.ContextJobEnableTableLogger{}, enableTableLogging)
 
-		ctx = stdoutLogger.WithContext(ctx)
-		ctx = context.WithValue(ctx, scheduler.ContextJobID{}, jobID)
-		ctx = context.WithValue(ctx, scheduler.ContextJobEnableTableLogger{}, enableTableLogging)
-
-		jobLog := func(level log.Level, message string, meta map[string]any) {
-			if enableTableLogging {
-				jobLogger.Log(ctx, level, jobID, message, meta)
+			jobLog := func(level log.Level, message string, meta map[string]any) {
+				if enableTableLogging {
+					jobLogger.Log(jobCtx, level, jobID, message, meta)
+				}
 			}
-		}
 
-		// 2. Register function
-		_, errRegister := crontab.AddFunc(cronSpec, func() {
 			start := time.Now()
 			withMeta := func(err error) map[string]any {
 				errorMsg := ""
@@ -296,7 +293,7 @@ func makeCron(ctx context.Context, stdoutLogger *zerolog.Logger, jobLogger *log.
 				}
 			}()
 
-			if err := job(ctx); err != nil {
+			if err := job(jobCtx); err != nil {
 				stdoutLogger.Err(err).Msg("job failed")
 				jobLog(log.Error, "job failed", withMeta(err))
 
@@ -304,11 +301,17 @@ func makeCron(ctx context.Context, stdoutLogger *zerolog.Logger, jobLogger *log.
 			}
 
 			stdoutLogger.Info().Msg("job completed")
-			jobLog(log.Error, "job completed", withMeta(nil))
-		})
+			jobLog(log.Info, "job completed", withMeta(nil))
+		}
+
+		_, errRegister := crontab.AddFunc(cronSpec, runJob)
 
 		if errRegister != nil {
-			stdoutLogger.Fatal().Err(errRegister).Msg("unable to register job")
+			stdoutLogger.Fatal().Str("cron_spec", cronSpec).Str("job", name).Err(errRegister).Msg("unable to register job")
+		}
+
+		if runOnStart {
+			go runJob()
 		}
 	}
 }
