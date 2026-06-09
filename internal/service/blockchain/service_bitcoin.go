@@ -31,6 +31,8 @@ const (
 	tronRequiredConfirmations     = int64(10)
 )
 
+const UTXODustSats = bitcoinDustSats
+
 type BitcoinUTXO struct {
 	Hash        string
 	Index       uint32
@@ -299,6 +301,107 @@ func (s *Service) PrepareBitcoinTransactionExcluding(
 		RequiredAmountSat: amountSats,
 		RBF:               true,
 	}, nil
+}
+
+func (s *Service) MaxBitcoinTransactionAmountExcluding(
+	ctx context.Context,
+	senderAddress string,
+	recipient string,
+	currency money.CryptoCurrency,
+	fee Fee,
+	isTest bool,
+	maxTotalCost money.Money,
+	excluded []BitcoinUTXOKey,
+) (money.Money, error) {
+	zero, err := currency.MakeAmount("0")
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	blockchain := kmswallet.Blockchain(fee.Currency.Blockchain)
+	if !isUTXOBlockchain(blockchain) || fee.Currency.Type != money.Coin {
+		return money.Money{}, errors.Wrap(ErrUnsupportedRuntime, "UTXO runtime supports native BTC/LTC coins only")
+	}
+
+	if maxTotalCost.Ticker() != fee.Currency.Ticker {
+		return money.Money{}, errors.Wrapf(ErrValidation, "%s max total cost ticker mismatch: %s", fee.Currency.Ticker, maxTotalCost.Ticker())
+	}
+
+	if err := kmswallet.ValidateAddressForNetwork(blockchain, senderAddress, isTest); err != nil {
+		return money.Money{}, errors.Wrapf(err, "invalid %s sender address", blockchain)
+	}
+
+	if err := kmswallet.ValidateAddressForNetwork(blockchain, recipient, isTest); err != nil {
+		return money.Money{}, errors.Wrapf(err, "invalid %s recipient address", blockchain)
+	}
+
+	feeBTC, err := fee.ToBitcoinFee()
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	feeRate, err := strconv.ParseInt(feeBTC.FeeSatPerVByte, 10, 64)
+	if err != nil || feeRate <= 0 {
+		return money.Money{}, errors.Wrap(ErrValidation, "invalid UTXO fee rate")
+	}
+
+	maxTotalCostSats, err := satoshiAmount(maxTotalCost)
+	if err != nil {
+		return money.Money{}, err
+	}
+	if maxTotalCostSats < bitcoinDustSats {
+		return zero, nil
+	}
+
+	utxos, err := s.utxoSpendableUTXOs(ctx, blockchain, senderAddress, isTest)
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	excludedMap := make(map[BitcoinUTXOKey]struct{}, len(excluded))
+	for _, key := range excluded {
+		excludedMap[key] = struct{}{}
+	}
+
+	if len(excludedMap) > 0 {
+		filtered := make([]BitcoinUTXO, 0, len(utxos))
+		for _, utxo := range utxos {
+			if _, ok := excludedMap[BitcoinUTXOKey{Hash: utxo.Hash, Index: utxo.Index}]; ok {
+				continue
+			}
+			filtered = append(filtered, utxo)
+		}
+		utxos = filtered
+	}
+
+	var bestSats int64
+	low, high := bitcoinDustSats, maxTotalCostSats
+	for low <= high {
+		candidateSats := low + (high-low)/2
+		_, feeSats, _, _, errSelect := selectBitcoinUTXOs(utxos, candidateSats, feeRate)
+		if errSelect != nil {
+			if errors.Is(errSelect, ErrInsufficientFunds) {
+				high = candidateSats - 1
+				continue
+			}
+
+			return money.Money{}, errSelect
+		}
+
+		if candidateSats+feeSats <= maxTotalCostSats {
+			bestSats = candidateSats
+			low = candidateSats + 1
+			continue
+		}
+
+		high = candidateSats - 1
+	}
+
+	if bestSats < bitcoinDustSats {
+		return zero, nil
+	}
+
+	return currency.MakeAmount(strconv.FormatInt(bestSats, 10))
 }
 
 func (s *Service) bitcoinSpendableUTXOs(ctx context.Context, address string, isTest bool) ([]BitcoinUTXO, error) {

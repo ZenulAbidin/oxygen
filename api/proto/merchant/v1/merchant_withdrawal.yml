@@ -48,6 +48,16 @@ definitions:
         example: '5.75'
         description: Fee in withdrawal currency
         x-omitempty: false
+      minimumAmount:
+        type: string
+        example: '0.00000546'
+        description: Minimum withdrawal amount in withdrawal currency
+        x-omitempty: false
+      maximumAmount:
+        type: string
+        example: '0.5'
+        description: Maximum withdrawal amount in withdrawal currency
+        x-omitempty: false
       isTest:
         description: Indicates whether currency is on testnet
         type: boolean

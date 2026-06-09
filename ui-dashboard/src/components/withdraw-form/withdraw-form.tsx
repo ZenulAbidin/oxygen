@@ -79,23 +79,17 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
     const [fee, setFee] = React.useState<ServiceFee>();
     const [isFormOpen, changeIsFormOpen] = React.useState<boolean>(false);
     const nullAmount = React.useMemo(() => new BigFloat(0), []);
+    const minWithdrawalAmount = React.useMemo(() => fee?.minimumAmount ?? nullAmount.toString(), [
+        fee?.minimumAmount,
+        nullAmount
+    ]);
     const maxWithdrawalAmount = React.useMemo(() => {
         if (props.balance.amount === "empty") {
             return nullAmount.toString();
         }
 
-        const balanceAmount = new BigFloat(props.balance.amount);
-        if (!fee) {
-            return balanceAmount.toString();
-        }
-
-        const nextMaxAmount = balanceAmount.sub(fee.currencyFee);
-        if (nextMaxAmount.lessThan(nullAmount)) {
-            return nullAmount.toString();
-        }
-
-        return nextMaxAmount.toString();
-    }, [fee?.currencyFee, nullAmount, props.balance.amount]);
+        return fee?.maximumAmount ?? props.balance.amount;
+    }, [fee?.maximumAmount, nullAmount, props.balance.amount]);
 
     const setWithdrawalAmount = React.useCallback(
         (nextAmount: string) => {
@@ -191,6 +185,20 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
         setWithdrawalAmount(maxWithdrawalAmount);
     };
 
+    const isAmountWithinAllowedRange = () => {
+        if (!checkCorrectAmount()) {
+            return false;
+        }
+
+        const selectedAmount = new BigFloat(0).add(amount);
+
+        return (
+            selectedAmount.greaterThan(nullAmount) &&
+            !selectedAmount.lessThan(new BigFloat(minWithdrawalAmount)) &&
+            !selectedAmount.greaterThan(new BigFloat(maxWithdrawalAmount))
+        );
+    };
+
     useMount(async () => {
         await loadServiceFee();
         await loadAvailableBalance();
@@ -246,7 +254,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
     };
 
     const onSubmit = async (values: Withdrawal) => {
-        if (props.balance.amount === "empty" || !fee || !checkCorrectAmount()) {
+        if (props.balance.amount === "empty" || !fee || !isAmountWithinAllowedRange()) {
             return;
         }
 
@@ -385,7 +393,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
                                     stringMode
                                     value={amount === "" ? undefined : amount}
                                     onChange={(value) => setWithdrawalAmount(value == null ? "" : String(value))}
-                                    min="0"
+                                    min={minWithdrawalAmount}
                                     max={maxWithdrawalAmount}
                                     className={b("currency-input")}
                                 />
@@ -401,10 +409,14 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
                         </Form.Item>
                         {fee && (
                             <Typography.Text type="secondary" className={b("note-text")}>
-                                {`Minimum withdrawal amount for ${props.balance.ticker} follows the current withdrawal fee: `}
+                                {`Minimum withdrawal amount for ${props.balance.ticker}: `}
                                 <Typography.Text strong>
-                                    {`${fee.currencyFee} ${fee.currency}`}
-                                    {!fee.isTest && ` ($${fee.usdFee})`}
+                                    {`${fee.minimumAmount} ${fee.currency}`}
+                                </Typography.Text>
+                                {". "}
+                                {"Maximum currently spendable: "}
+                                <Typography.Text strong>
+                                    {`${fee.maximumAmount} ${fee.currency}`}
                                 </Typography.Text>
                             </Typography.Text>
                         )}
@@ -420,7 +432,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
                         />
 
                         <Space>
-                            <Button type="primary" htmlType="submit">
+                            <Button type="primary" htmlType="submit" disabled={!fee || !isAmountWithinAllowedRange()}>
                                 Create Withdrawal
                             </Button>
                         </Space>

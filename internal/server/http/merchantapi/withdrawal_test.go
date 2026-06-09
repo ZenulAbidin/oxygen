@@ -246,7 +246,7 @@ func TestWithdrawalRoutes(t *testing.T) {
 				assert.Contains(t, body.Errors[0].Message, "balance does not match to address")
 			})
 
-			t.Run("Amount is too small", func(t *testing.T) {
+			t.Run("Amount is zero", func(t *testing.T) {
 				// ARRANGE
 				mt, _ := tc.Must.CreateMerchant(t, user.ID)
 
@@ -270,7 +270,7 @@ func TestWithdrawalRoutes(t *testing.T) {
 				req := model.CreateWithdrawalRequest{
 					AddressID: addr.UUID.String(),
 					BalanceID: balance.UUID.String(),
-					Amount:    "0.0005",
+					Amount:    "0",
 				}
 
 				// ACT
@@ -288,7 +288,7 @@ func TestWithdrawalRoutes(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, res.StatusCode(), res.String())
 				assert.NoError(t, res.JSON(&body))
 				assert.Equal(t, "amount", body.Errors[0].Field)
-				assert.Contains(t, body.Errors[0].Message, "withdrawal amount is too small")
+				assert.Contains(t, body.Errors[0].Message, "invalid amount")
 			})
 
 			t.Run("Amount is too high", func(t *testing.T) {

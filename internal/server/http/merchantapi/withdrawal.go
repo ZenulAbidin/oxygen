@@ -135,11 +135,13 @@ func withdrawalFeeToResponse(fee *payment.WithdrawalFee) *model.WithdrawalFee {
 	}
 
 	return &model.WithdrawalFee{
-		Blockchain:   fee.Blockchain.String(),
-		CalculatedAt: strfmt.DateTime(fee.CalculatedAt),
-		Currency:     fee.Currency,
-		UsdFee:       usdFee,
-		CurrencyFee:  fee.CryptoFee.String(),
-		IsTest:       fee.IsTest,
+		Blockchain:    fee.Blockchain.String(),
+		CalculatedAt:  strfmt.DateTime(fee.CalculatedAt),
+		Currency:      fee.Currency,
+		UsdFee:        usdFee,
+		CurrencyFee:   fee.CryptoFee.String(),
+		MinimumAmount: fee.MinimumAmount.String(),
+		MaximumAmount: fee.MaximumAmount.String(),
+		IsTest:        fee.IsTest,
 	}
 }

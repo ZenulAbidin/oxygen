@@ -173,6 +173,19 @@ func (s *bitcoinBlockchainStub) PrepareBitcoinSweepTransactionExcluding(
 	return s.plan, nil
 }
 
+func (s *bitcoinBlockchainStub) MaxBitcoinTransactionAmountExcluding(
+	context.Context,
+	string,
+	string,
+	money.CryptoCurrency,
+	blockchain.Fee,
+	bool,
+	money.Money,
+	[]blockchain.BitcoinUTXOKey,
+) (money.Money, error) {
+	panic("unexpected call")
+}
+
 func (s *bitcoinBlockchainStub) GetExchangeRate(context.Context, string, string) (blockchain.ExchangeRate, error) {
 	panic("unexpected call")
 }

@@ -70,3 +70,16 @@ func (c *ConvertorProxy) PrepareBitcoinSweepTransactionExcluding(
 ) (blockchain.BitcoinTransactionPlan, error) {
 	return c.conv.PrepareBitcoinSweepTransactionExcluding(ctx, senderAddress, recipient, fee, isTest, excluded)
 }
+
+func (c *ConvertorProxy) MaxBitcoinTransactionAmountExcluding(
+	ctx context.Context,
+	senderAddress string,
+	recipient string,
+	currency money.CryptoCurrency,
+	fee blockchain.Fee,
+	isTest bool,
+	maxTotalCost money.Money,
+	excluded []blockchain.BitcoinUTXOKey,
+) (money.Money, error) {
+	return c.conv.MaxBitcoinTransactionAmountExcluding(ctx, senderAddress, recipient, currency, fee, isTest, maxTotalCost, excluded)
+}

@@ -124,6 +124,8 @@ interface ServiceFee {
     currency: string;
     currencyFee: string;
     isTest: boolean;
+    maximumAmount: string;
+    minimumAmount: string;
     usdFee: string;
 }
 

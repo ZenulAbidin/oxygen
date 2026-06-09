@@ -60,6 +60,16 @@ type BlockchainService interface {
 		isTest bool,
 		excluded []blockchain.BitcoinUTXOKey,
 	) (blockchain.BitcoinTransactionPlan, error)
+	MaxBitcoinTransactionAmountExcluding(
+		ctx context.Context,
+		senderAddress string,
+		recipient string,
+		currency money.CryptoCurrency,
+		fee blockchain.Fee,
+		isTest bool,
+		maxTotalCost money.Money,
+		excluded []blockchain.BitcoinUTXOKey,
+	) (money.Money, error)
 }
 
 type Service struct {

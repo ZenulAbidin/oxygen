@@ -106,18 +106,25 @@ func (s *Service) CreateWithdrawal(ctx context.Context, merchantID int64, props 
 		)
 	}
 
-	// The minimum withdrawal follows the currently estimated withdrawal fee,
-	// not a static USD floor.
-	if !amount.CompatibleTo(withdrawalFee.CryptoFee) {
+	if !amount.CompatibleTo(withdrawalFee.MinimumAmount) || !amount.CompatibleTo(withdrawalFee.MaximumAmount) {
 		return nil, money.ErrIncompatibleMoney
 	}
 
-	if amount.LessThan(withdrawalFee.CryptoFee) {
+	if amount.LessThan(withdrawalFee.MinimumAmount) {
 		return nil, errors.Wrapf(
 			ErrWithdrawalAmountTooSmall,
-			"minimum withdrawal amount is %s %s (estimated withdrawal fee)",
-			withdrawalFee.CryptoFee.String(),
-			withdrawalFee.CryptoFee.Ticker(),
+			"minimum withdrawal amount is %s %s",
+			withdrawalFee.MinimumAmount.String(),
+			withdrawalFee.MinimumAmount.Ticker(),
+		)
+	}
+
+	if amount.GreaterThan(withdrawalFee.MaximumAmount) {
+		return nil, errors.WithMessagef(
+			ErrWithdrawalInsufficientBalance,
+			"maximum withdrawal amount is %s %s for currently spendable funds",
+			withdrawalFee.MaximumAmount.String(),
+			withdrawalFee.MaximumAmount.Ticker(),
 		)
 	}
 
@@ -161,12 +168,14 @@ func (s *Service) CreateWithdrawal(ctx context.Context, merchantID int64, props 
 }
 
 type WithdrawalFee struct {
-	CalculatedAt time.Time
-	Blockchain   money.Blockchain
-	Currency     string
-	USDFee       money.Money
-	CryptoFee    money.Money
-	IsTest       bool
+	CalculatedAt  time.Time
+	Blockchain    money.Blockchain
+	Currency      string
+	USDFee        money.Money
+	CryptoFee     money.Money
+	MinimumAmount money.Money
+	MaximumAmount money.Money
+	IsTest        bool
 }
 
 func (s *Service) GetWithdrawalFee(ctx context.Context, merchantID int64, balanceID uuid.UUID) (*WithdrawalFee, error) {
@@ -198,6 +207,10 @@ func (s *Service) getWithdrawalFee(
 	}
 
 	isTest := balance.NetworkID != currency.NetworkID
+	minimumAmount, err := currency.MakeAmount("0")
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to make %s minimum withdrawal amount", currency.Ticker)
+	}
 
 	if isUTXOBlockchain(currency.Blockchain) {
 		networkFee, err := s.blockchain.CalculateFee(ctx, baseCurrency, currency, isTest)
@@ -220,13 +233,25 @@ func (s *Service) getWithdrawalFee(
 			return nil, errors.Wrapf(err, "unable to convert %s fee to USD", currency.Ticker)
 		}
 
+		minimumAmount, err = currency.MakeAmount(strconv.FormatInt(blockchain.UTXODustSats, 10))
+		if err != nil {
+			return nil, errors.Wrapf(err, "unable to make %s dust amount", currency.Ticker)
+		}
+
+		maximumAmount, err := s.maxUTXOWithdrawalAmount(ctx, balance, currency, networkFee, isTest, "")
+		if err != nil {
+			return nil, errors.Wrapf(err, "unable to calculate %s max withdrawal amount", currency.Ticker)
+		}
+
 		return &WithdrawalFee{
-			CalculatedAt: time.Now(),
-			Blockchain:   currency.Blockchain,
-			Currency:     currency.Ticker,
-			IsTest:       isTest,
-			USDFee:       conv.To,
-			CryptoFee:    cryptoFee,
+			CalculatedAt:  time.Now(),
+			Blockchain:    currency.Blockchain,
+			Currency:      currency.Ticker,
+			IsTest:        isTest,
+			USDFee:        conv.To,
+			CryptoFee:     cryptoFee,
+			MinimumAmount: minimumAmount,
+			MaximumAmount: maximumAmount,
 		}, nil
 	}
 
@@ -240,14 +265,143 @@ func (s *Service) getWithdrawalFee(
 		return nil, errors.Wrapf(err, "unable to get currency withdrawal fee in crypto")
 	}
 
+	maximumAmount, err := balance.Amount.Sub(conv.To)
+	if errors.Is(err, money.ErrNegative) {
+		maximumAmount, err = currency.MakeAmount("0")
+	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to calculate %s max withdrawal amount", currency.Ticker)
+	}
+
 	return &WithdrawalFee{
-		CalculatedAt: time.Now(),
-		Blockchain:   currency.Blockchain,
-		Currency:     currency.Ticker,
-		IsTest:       isTest,
-		USDFee:       usdFee,
-		CryptoFee:    conv.To,
+		CalculatedAt:  time.Now(),
+		Blockchain:    currency.Blockchain,
+		Currency:      currency.Ticker,
+		IsTest:        isTest,
+		USDFee:        usdFee,
+		CryptoFee:     conv.To,
+		MinimumAmount: minimumAmount,
+		MaximumAmount: maximumAmount,
 	}, nil
+}
+
+type utxoWithdrawalSource struct {
+	Wallet  *wallet.Wallet
+	Balance *wallet.Balance
+}
+
+func (s *Service) maxUTXOWithdrawalAmount(
+	ctx context.Context,
+	merchantBalance *wallet.Balance,
+	currency money.CryptoCurrency,
+	fee blockchain.Fee,
+	isTest bool,
+	recipient string,
+) (money.Money, error) {
+	maximum, err := currency.MakeAmount("0")
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	sources, err := s.listUTXOWithdrawalSources(ctx, merchantBalance, currency, isTest)
+	if err != nil {
+		return money.Money{}, err
+	}
+
+	for _, source := range sources {
+		maxTotalCost := source.Balance.Amount
+		if merchantBalance.Amount.LessThan(maxTotalCost) {
+			maxTotalCost = merchantBalance.Amount
+		}
+		if maxTotalCost.IsZero() {
+			continue
+		}
+
+		recipientAddress := recipient
+		if recipientAddress == "" {
+			recipientAddress = source.Wallet.Address
+		}
+
+		spendable, err := s.wallets.MaxSpendableUTXOAmount(
+			ctx,
+			source.Wallet,
+			recipientAddress,
+			currency,
+			fee,
+			isTest,
+			maxTotalCost,
+		)
+		if err != nil {
+			s.logger.Warn().Err(err).
+				Int64("wallet_id", source.Wallet.ID).
+				Str("wallet_type", string(source.Wallet.Type)).
+				Str("currency", currency.Ticker).
+				Msg("skipping UTXO withdrawal source")
+			continue
+		}
+
+		if spendable.GreaterThan(maximum) {
+			maximum = spendable
+		}
+	}
+
+	return maximum, nil
+}
+
+func (s *Service) listUTXOWithdrawalSources(
+	ctx context.Context,
+	merchantBalance *wallet.Balance,
+	currency money.CryptoCurrency,
+	isTest bool,
+) ([]utxoWithdrawalSource, error) {
+	var (
+		sources   []utxoWithdrawalSource
+		start     int64
+		networkID = currency.ChooseNetwork(isTest)
+	)
+
+	for {
+		wallets, nextID, err := s.wallets.List(ctx, wallet.Pagination{
+			Start:              start,
+			Limit:              300,
+			FilterByBlockchain: kmswallet.Blockchain(currency.Blockchain),
+		})
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to list UTXO wallets")
+		}
+
+		for _, sourceWallet := range wallets {
+			if sourceWallet.Type != wallet.TypeOutbound && sourceWallet.Type != wallet.TypeInbound {
+				continue
+			}
+
+			balances, err := s.wallets.ListBalances(ctx, wallet.EntityTypeWallet, sourceWallet.ID, false)
+			if err != nil {
+				return nil, errors.Wrap(err, "unable to list UTXO wallet balances")
+			}
+
+			for _, balance := range balances {
+				if balance.Currency != currency.Ticker || balance.NetworkID != networkID || balance.Amount.IsZero() {
+					continue
+				}
+				if !balance.Amount.CompatibleTo(merchantBalance.Amount) {
+					continue
+				}
+
+				sources = append(sources, utxoWithdrawalSource{
+					Wallet:  sourceWallet,
+					Balance: balance,
+				})
+			}
+		}
+
+		if nextID == nil {
+			break
+		}
+		start = *nextID
+	}
+
+	return sources, nil
 }
 
 func isUTXOBlockchain(blockchain money.Blockchain) bool {

@@ -90,6 +90,32 @@ func (s *Service) CreateSignedUTXOSweepTransaction(
 	return s.createSignedBitcoinTransaction(ctx, sender, recipient, currency, money.Money{}, fee, isTest, true)
 }
 
+func (s *Service) MaxSpendableUTXOAmount(
+	ctx context.Context,
+	sender *Wallet,
+	recipient string,
+	currency money.CryptoCurrency,
+	fee blockchain.Fee,
+	isTest bool,
+	maxTotalCost money.Money,
+) (money.Money, error) {
+	excluded, err := s.activeBitcoinUTXOReservationKeys(ctx, sender.ID, isTest)
+	if err != nil {
+		return money.Money{}, errors.Wrap(err, "unable to list reserved BTC UTXOs")
+	}
+
+	return s.blockchain.MaxBitcoinTransactionAmountExcluding(
+		ctx,
+		sender.Address,
+		recipient,
+		currency,
+		fee,
+		isTest,
+		maxTotalCost,
+		excluded,
+	)
+}
+
 func (s *Service) createSignedBitcoinTransaction(
 	ctx context.Context,
 	sender *Wallet,

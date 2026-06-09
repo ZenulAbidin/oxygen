@@ -39,6 +39,14 @@ type WithdrawalFee struct {
 	// Indicates whether currency is on testnet
 	IsTest bool `json:"isTest"`
 
+	// Maximum withdrawal amount in withdrawal currency
+	// Example: 0.5
+	MaximumAmount string `json:"maximumAmount"`
+
+	// Minimum withdrawal amount in withdrawal currency
+	// Example: 0.00000546
+	MinimumAmount string `json:"minimumAmount"`
+
 	// USD fee
 	// Example: 5.68
 	UsdFee string `json:"usdFee"`
