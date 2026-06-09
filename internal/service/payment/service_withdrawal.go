@@ -207,7 +207,7 @@ func (s *Service) getWithdrawalFee(
 	}
 
 	isTest := balance.NetworkID != currency.NetworkID
-	minimumAmount, err := currency.MakeAmount("0")
+	minimumAmount, err := minimumWithdrawalAmount(currency)
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to make %s minimum withdrawal amount", currency.Ticker)
 	}
@@ -231,11 +231,6 @@ func (s *Service) getWithdrawalFee(
 		conv, err := s.blockchain.CryptoToFiat(ctx, cryptoFee, money.USD)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unable to convert %s fee to USD", currency.Ticker)
-		}
-
-		minimumAmount, err = currency.MakeAmount(strconv.FormatInt(blockchain.UTXODustSats, 10))
-		if err != nil {
-			return nil, errors.Wrapf(err, "unable to make %s dust amount", currency.Ticker)
 		}
 
 		maximumAmount, err := s.maxUTXOWithdrawalAmount(ctx, balance, currency, networkFee, isTest, "")
@@ -283,6 +278,14 @@ func (s *Service) getWithdrawalFee(
 		MinimumAmount: minimumAmount,
 		MaximumAmount: maximumAmount,
 	}, nil
+}
+
+func minimumWithdrawalAmount(currency money.CryptoCurrency) (money.Money, error) {
+	if isUTXOBlockchain(currency.Blockchain) {
+		return currency.MakeAmount(strconv.FormatInt(blockchain.UTXODustSats, 10))
+	}
+
+	return currency.MakeAmount("0")
 }
 
 type utxoWithdrawalSource struct {

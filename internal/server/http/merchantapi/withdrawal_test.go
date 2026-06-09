@@ -103,6 +103,59 @@ func TestWithdrawalRoutes(t *testing.T) {
 			assert.Equal(t, addr.ID, r.Address.ID)
 		})
 
+		t.Run("Allows tiny positive account-chain amount", func(t *testing.T) {
+			// ARRANGE
+			// Given a merchant
+			mt, _ := tc.Must.CreateMerchant(t, user.ID)
+
+			// And address
+			addr, err := tc.Services.Merchants.CreateMerchantAddress(tc.Context, mt.ID, merchant.CreateMerchantAddressParams{
+				Name:       "A1",
+				Blockchain: "ETH",
+				Address:    "0x690b9a9e9aa1c9db991c7721a92d351db4fac990",
+			})
+			require.NoError(t, err)
+
+			// And a withdrawal amount below the calculated fee
+			balanceETH := lo.Must(eth.MakeAmount("500_000_000_000_000_000"))
+			amountETH := lo.Must(eth.MakeAmount("1_000_000_000_000_000"))
+
+			// And balance
+			withETH := test.WithBalanceFromCurrency(eth, balanceETH.StringRaw(), false)
+			balance := tc.Must.CreateBalance(t, wallet.EntityTypeMerchant, mt.ID, withETH)
+
+			// And a withdrawal request
+			req := model.CreateWithdrawalRequest{
+				AddressID: addr.UUID.String(),
+				BalanceID: balance.UUID.String(),
+				Amount:    amountETH.String(),
+			}
+
+			// ACT
+			res := tc.Client.
+				POST().
+				Path(withdrawalsRoute).
+				WithToken(token).
+				Param(paramMerchantID, mt.UUID.String()).
+				JSON(&req).
+				Do()
+
+			// ASSERT
+			var body model.Withdrawal
+
+			assert.Equal(t, http.StatusCreated, res.StatusCode(), res.String())
+			assert.NoError(t, res.JSON(&body))
+			assert.NotEqual(t, uuid.Nil.String(), body.PaymentID)
+
+			publicID := uuid.MustParse(body.PaymentID)
+
+			r, err := tc.Services.Payment.GetByMerchantOrderIDWithRelations(tc.Context, mt.ID, publicID)
+			assert.NoError(t, err)
+			assert.Equal(t, payment.TypeWithdrawal, r.Payment.Type)
+			assert.Equal(t, payment.StatusPending, r.Payment.Status)
+			assert.Equal(t, amountETH, r.Payment.Price)
+		})
+
 		t.Run("Fails", func(t *testing.T) {
 			t.Run("Invalid request", func(t *testing.T) {
 				// ARRANGE
@@ -416,47 +469,56 @@ func TestWithdrawalRoutes(t *testing.T) {
 				balance           func(merchantID int64) *wallet.Balance
 				expectedFeeUSD    string
 				expectedFeeCrypto string
+				expectedMinimum   string
 			}{
 				{
 					balance:           makeBalance(asset("ETH"), false, usd(6)),
 					expectedFeeUSD:    "6",
 					expectedFeeCrypto: "3",
+					expectedMinimum:   "0",
 				},
 				{
 					balance:           makeBalance(asset("ETH_USDT"), false, usd(12)),
 					expectedFeeUSD:    "12",
 					expectedFeeCrypto: "6",
+					expectedMinimum:   "0",
 				},
 				{
 					balance:           makeBalance(asset("MATIC"), false, usd(1)),
 					expectedFeeUSD:    "1",
 					expectedFeeCrypto: "0.5",
+					expectedMinimum:   "0",
 				},
 				{
 					balance:           makeBalance(asset("TRON"), false, usd(1.5)),
 					expectedFeeUSD:    "1.50",
 					expectedFeeCrypto: "0.75",
+					expectedMinimum:   "0",
 				},
 				{
 					balance:           makeBalance(asset("TRON_USDT"), false, usd(3.65)),
 					expectedFeeUSD:    "3.65",
 					expectedFeeCrypto: "1.824999",
+					expectedMinimum:   "0",
 				},
 				{
 					balance:           makeBalance(asset("ETH"), false, usd(0.01)),
 					expectedFeeUSD:    "0.01",
 					expectedFeeCrypto: "0.005",
+					expectedMinimum:   "0",
 				},
 				{
 					balance:           makeBalance(asset("BNB"), false, usd(0.02)),
 					expectedFeeUSD:    "0.02",
 					expectedFeeCrypto: "0.01",
+					expectedMinimum:   "0",
 				},
 				{
 					// in testnets money "cost" $0
 					balance:           makeBalance(asset("TRON"), true, usd(1.5)),
 					expectedFeeUSD:    "0",
 					expectedFeeCrypto: "0.75",
+					expectedMinimum:   "0",
 				},
 			} {
 				t.Run(strconv.Itoa(testCaseIndex+1), func(t *testing.T) {
@@ -486,6 +548,7 @@ func TestWithdrawalRoutes(t *testing.T) {
 					assert.Equal(t, balance.Currency, body.Currency)
 					assert.Equal(t, testCase.expectedFeeUSD, body.UsdFee)
 					assert.Equal(t, testCase.expectedFeeCrypto, body.CurrencyFee)
+					assert.Equal(t, testCase.expectedMinimum, body.MinimumAmount)
 				})
 			}
 		})
