@@ -97,6 +97,14 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
         return nextMaxAmount.toString();
     }, [fee?.currencyFee, nullAmount, props.balance.amount]);
 
+    const setWithdrawalAmount = React.useCallback(
+        (nextAmount: string) => {
+            changeAmount(nextAmount);
+            form.setFieldValue("amount", nextAmount);
+        },
+        [form]
+    );
+
     const balanceId = `${props.balance.blockchainName} ${props.balance.ticker} ${
         props.balance.isTest ? "⚠️ testnet balance" : ""
     }`;
@@ -169,10 +177,10 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
         let res = amount;
 
         if (convertedAmount.lessThan(nullAmount)) {
-            changeAmount(nullAmount.toString());
+            setWithdrawalAmount(nullAmount.toString());
             res = nullAmount.toString();
         } else if (convertedAmount.greaterThan(maxAmount)) {
-            changeAmount(maxAmount.toString());
+            setWithdrawalAmount(maxAmount.toString());
             res = maxAmount.toString();
         }
 
@@ -180,8 +188,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
     };
 
     const applyMaxAmount = () => {
-        changeAmount(maxWithdrawalAmount);
-        form.setFieldValue("amount", maxWithdrawalAmount);
+        setWithdrawalAmount(maxWithdrawalAmount);
     };
 
     useMount(async () => {
@@ -192,7 +199,7 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
     React.useEffect(() => {
         if (props.balance.id === "empty") {
             setConvertedAmount("");
-            changeAmount("");
+            setWithdrawalAmount("");
         } else {
             loadServiceFee();
             loadAvailableBalance();
@@ -376,7 +383,8 @@ const WithdrawForm: React.FC<Props> = (props: Props) => {
                                 />
                                 <InputNumber
                                     stringMode
-                                    onBlur={(e) => changeAmount(e.target.value)}
+                                    value={amount === "" ? undefined : amount}
+                                    onChange={(value) => setWithdrawalAmount(value == null ? "" : String(value))}
                                     min="0"
                                     max={maxWithdrawalAmount}
                                     className={b("currency-input")}
