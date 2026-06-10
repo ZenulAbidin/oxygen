@@ -1,7 +1,16 @@
 .PHONY: help
 
--include .env.example
 -include .env
+
+VITE_BACKEND_HOST ?= //
+VITE_SUPPORT_EMAIL ?= help@site.com
+VITE_ROOTPATH ?= /p/
+VITE_WALLETCONNECT_PROJECT_ID ?=
+
+export VITE_BACKEND_HOST
+export VITE_SUPPORT_EMAIL
+export VITE_ROOTPATH
+export VITE_WALLETCONNECT_PROJECT_ID
 
 NODE_OPTIONS ?= --max-old-space-size=5000
 export NODE_OPTIONS
