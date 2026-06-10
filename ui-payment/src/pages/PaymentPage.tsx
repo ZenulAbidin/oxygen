@@ -46,6 +46,7 @@ const PaymentPage: React.FC = () => {
     const [walletConnectState, setWalletConnectState] = React.useState<WalletConnectState>("idle");
     const [walletConnectError, setWalletConnectError] = React.useState<string>();
     const [walletConnectTxHash, setWalletConnectTxHash] = React.useState<string>();
+    const walletConnectInFlight = React.useRef(false);
 
     const updatePayment = React.useCallback(async () => {
         if (!payment?.id) {
@@ -218,10 +219,11 @@ const PaymentPage: React.FC = () => {
     const onWalletConnectPay = async () => {
         const projectId = (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined)?.trim();
 
-        if (!payment?.paymentMethod || !payment.paymentInfo || !projectId) {
+        if (!payment?.paymentMethod || !payment.paymentInfo || !projectId || walletConnectInFlight.current) {
             return;
         }
 
+        walletConnectInFlight.current = true;
         setWalletConnectState("connecting");
         setWalletConnectError(undefined);
         setWalletConnectTxHash(undefined);
@@ -239,6 +241,8 @@ const PaymentPage: React.FC = () => {
             setWalletConnectState("error");
             setWalletConnectError(error instanceof Error ? error.message : "WalletConnect payment failed.");
             logNonNetworkError("WalletConnect payment failed:", error);
+        } finally {
+            walletConnectInFlight.current = false;
         }
     };
 

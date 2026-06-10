@@ -16,6 +16,9 @@ interface WalletConnectPaymentResult {
 }
 
 type WalletConnectProvider = Awaited<ReturnType<typeof EthereumProvider.init>>;
+type ProviderCacheKey = `${string}:${number}`;
+
+const providerPromises = new Map<ProviderCacheKey, Promise<WalletConnectProvider>>();
 
 export function canPayWithWalletConnect(paymentMethod?: PaymentMethod) {
     if (!paymentMethod || !EVM_BLOCKCHAINS.has(paymentMethod.blockchain)) {
@@ -48,7 +51,14 @@ export async function sendWalletConnectPayment({
 }
 
 async function initProvider(projectId: string, chainId: number) {
-    return EthereumProvider.init({
+    const cacheKey: ProviderCacheKey = `${projectId}:${chainId}`;
+    const cachedProvider = providerPromises.get(cacheKey);
+
+    if (cachedProvider) {
+        return cachedProvider;
+    }
+
+    const providerPromise = EthereumProvider.init({
         projectId,
         optionalChains: [chainId],
         optionalMethods: ["eth_requestAccounts", "eth_sendTransaction", "wallet_switchEthereumChain"],
@@ -61,6 +71,15 @@ async function initProvider(projectId: string, chainId: number) {
             icons: []
         }
     });
+
+    providerPromises.set(cacheKey, providerPromise);
+
+    try {
+        return await providerPromise;
+    } catch (error) {
+        providerPromises.delete(cacheKey);
+        throw error;
+    }
 }
 
 async function connectWallet(provider: WalletConnectProvider, chainId: number) {
