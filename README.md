@@ -54,6 +54,7 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 - Built-in KMS (Key Management Service) for securely storing wallet keys
 - Nice and simple merchant dashboard; sleek payment UI
 - Easy integration via the local docs service: [API](http://localhost:8081/api/merchant.html) or [webhooks](http://localhost:8081/#webhooks)
+- Server-side SDKs for Python, JavaScript, and PHP in [`sdks/`](./sdks)
 - No need to setup full-nodes
 - Support for testnets
 - It's only 1 binary!
@@ -89,7 +90,7 @@ Receive crypto including stablecoins with ease. Open new opportunities for your 
 - [x] Support for Binance Smart Chain (BNB, BUSD)
 - [x] Donations feature
 - [ ] Support for [WalletConnect](https://walletconnect.com/)
-- [ ] SDKs for (Python, JavaScript, PHP, etc...)
+- [x] SDKs for Python, JavaScript, and PHP
 - [ ] Support for all major ETH Layer 2 Chains
 - [ ] Support for blockchain notification providers other than Tatum
 - [ ] Integration with DEXes for automatic swaps: convert incoming crypto to stablecoins
