@@ -206,7 +206,7 @@ func TestService_Update(t *testing.T) {
 				moneyEqual(t, createCrypto(t, currencyETH, "1_480_000_000"), merchant)
 			},
 		},
-		// BTC credits actual received crypto instead of capping at order amount
+		// BTC overpayment is capped at order amount for merchant credit
 		{
 			merchantID: mt1.ID,
 			txCreate: transaction.CreateTransaction{
@@ -227,7 +227,7 @@ func TestService_Update(t *testing.T) {
 			},
 			assert: func(t *testing.T, tx *transaction.Transaction, wallet, merchant money.Money) {
 				moneyEqual(t, createCrypto(t, currencyBTC, "1500"), wallet)
-				moneyEqual(t, createCrypto(t, currencyBTC, "1490"), merchant)
+				moneyEqual(t, createCrypto(t, currencyBTC, "990"), merchant)
 			},
 		},
 	} {
