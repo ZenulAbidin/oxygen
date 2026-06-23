@@ -3,14 +3,13 @@ package cmd
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 	"time"
 
 	"github.com/jackc/pgx/v4"
-	//nolint:revive.
-	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/jackc/pgx/v4/stdlib"
 	"github.com/olekukonko/tablewriter"
 	"github.com/oxygenpay/oxygen/internal/config"
 	"github.com/oxygenpay/oxygen/scripts"
@@ -85,15 +84,12 @@ func performMigration(ctx context.Context, cfg *config.Config, command string, s
 }
 
 func migrationConnection(ctx context.Context, cfg *config.Config) *sql.DB {
-	dataSource, err := parseConn(cfg.Oxygen.Postgres.DataSource)
+	connCfg, err := parseConn(cfg.Oxygen.Postgres.DataSource)
 	if err != nil {
 		log.Fatalf("unable to parse DB connection: %s\n", err.Error())
 	}
 
-	db, err := sql.Open("pgx", dataSource)
-	if err != nil {
-		log.Fatalf("unable to open DB connection: %s\n", err.Error())
-	}
+	db := sql.OpenDB(stdlib.GetConnector(*connCfg))
 
 	if _, err = db.Conn(ctx); err != nil {
 		log.Fatalf("unable to connect to DB: %s\n", err.Error())
@@ -117,27 +113,14 @@ func migrationStatus(db *sql.DB, set *migrate.MigrationSet) {
 	}
 }
 
-// parseConn strip irrelevant pgx pool configuration params.
-func parseConn(raw string) (string, error) {
-	connCfg, err := pgx.ParseConfig(raw)
+// parseConn strips irrelevant pgx pool configuration params while preserving all
+// connection-level settings, including TLS verification options such as
+// sslmode=verify-full, sslrootcert, sslcert, and sslkey.
+func parseConn(raw string) (*pgx.ConnConfig, error) {
+	poolCfg, err := pgxpool.ParseConfig(raw)
 	if err != nil {
-		log.Fatalf("unable to parse pg config: %s\n", err.Error())
-		return "", err
+		return nil, err
 	}
 
-	sslMode := "disable"
-	if connCfg.Config.TLSConfig != nil {
-		sslMode = "require"
-	}
-
-	dataSource := fmt.Sprintf(
-		"postgres://%s:%s@%s/%s?sslmode=%s",
-		connCfg.User,
-		connCfg.Password,
-		connCfg.Host,
-		connCfg.Database,
-		sslMode,
-	)
-
-	return dataSource, nil
+	return poolCfg.ConnConfig, nil
 }
