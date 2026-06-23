@@ -10,7 +10,6 @@ import (
 	"github.com/oxygenpay/oxygen/internal/db/repository"
 	"github.com/oxygenpay/oxygen/internal/money"
 	"github.com/oxygenpay/oxygen/internal/server/http/paymentapi"
-	"github.com/oxygenpay/oxygen/internal/service/blockchain"
 	"github.com/oxygenpay/oxygen/internal/service/merchant"
 	"github.com/oxygenpay/oxygen/internal/service/payment"
 	"github.com/oxygenpay/oxygen/internal/service/transaction"
@@ -306,7 +305,7 @@ func TestHandlers(t *testing.T) {
 			require.Nil(t, body.PaymentInfo.SuccessMessage)
 		})
 
-		t.Run("Returns observed transaction without updating payment state", func(t *testing.T) {
+		t.Run("Does not observe transaction on public payment read", func(t *testing.T) {
 			// ARRANGE
 			merchantID := int64(1)
 			p := tc.CreateSamplePayment(t, merchantID)
@@ -325,33 +324,6 @@ func TestHandlers(t *testing.T) {
 			require.NoError(t, err)
 
 			tx := method.TX()
-			txHash := "0xabc123"
-			sender := "0x123-sender"
-			coin := tc.Must.GetBlockchainCoin(t, tx.Currency.Blockchain)
-			networkFee := lo.Must(coin.MakeAmount("1000"))
-
-			tc.Fakes.SetupListIncomingTransactions(tx.RecipientAddress, tx.Currency, tx.IsTest, []blockchain.IncomingTransaction{
-				{
-					Currency:      tx.Currency,
-					Amount:        tx.Amount,
-					SenderAddress: sender,
-					TransactionID: txHash,
-					NetworkID:     tx.NetworkID(),
-					BlockNumber:   100,
-					IsMempool:     true,
-				},
-			})
-			tc.Fakes.SetupGetTransactionReceipt(tx.Currency.Blockchain, txHash, tx.IsTest, &blockchain.TransactionReceipt{
-				Blockchain:    tx.Currency.Blockchain,
-				IsTest:        tx.IsTest,
-				Sender:        sender,
-				Recipient:     tx.RecipientAddress,
-				Hash:          txHash,
-				NetworkFee:    networkFee,
-				Success:       true,
-				Confirmations: 3,
-				IsConfirmed:   false,
-			}, nil)
 
 			// ACT
 			res := tc.
@@ -368,13 +340,7 @@ func TestHandlers(t *testing.T) {
 
 			require.NotNil(t, body.PaymentInfo)
 			require.Equal(t, payment.StatusPending.String(), body.PaymentInfo.Status)
-			require.NotNil(t, body.PaymentInfo.ObservedTransaction)
-			assert.Equal(t, txHash, body.PaymentInfo.ObservedTransaction.TransactionHash)
-			assert.Equal(t, sender, body.PaymentInfo.ObservedTransaction.SenderAddress)
-			assert.Equal(t, int64(3), body.PaymentInfo.ObservedTransaction.Confirmations)
-			assert.Equal(t, int64(12), body.PaymentInfo.ObservedTransaction.RequiredConfirmations)
-			assert.False(t, body.PaymentInfo.ObservedTransaction.IsConfirmed)
-			assert.True(t, body.PaymentInfo.ObservedTransaction.IsMempool)
+			require.Nil(t, body.PaymentInfo.ObservedTransaction)
 
 			tx, err = tc.Services.Transaction.GetByID(tc.Context, p.MerchantID, tx.ID)
 			require.NoError(t, err)
