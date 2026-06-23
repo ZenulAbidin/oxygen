@@ -192,15 +192,10 @@ func (s *Service) GetDetailedPayment(ctx context.Context, merchantID, paymentID 
 			SuccessMessage: pt.PublicSuccessMessage(),
 		}
 
-		observed, err := s.ObserveIncomingTransaction(ctx, tx)
-		if err != nil {
-			s.logger.Warn().
-				Err(err).
-				Int64("transaction_id", tx.ID).
-				Msg("unable to observe incoming transaction")
-		} else {
-			result.PaymentInfo.ObservedTransaction = observed
-		}
+		// Do not perform blockchain observation here. This method is used by the
+		// public payment GET endpoint, and observation may perform expensive
+		// upstream scans. Incoming transaction discovery is handled by scheduler
+		// jobs instead.
 	}
 
 	return result, nil
