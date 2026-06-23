@@ -19,6 +19,11 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+const (
+	embeddedKMSAddress = "127.0.0.1"
+	embeddedKMSPort    = "14000"
+)
+
 type App struct {
 	ctx    context.Context
 	config *config.Config
@@ -82,12 +87,8 @@ func (app *App) runWebServer(ctx context.Context) {
 	walletRepo := wallet.NewRepository(app.db)
 	kmsService := wallet.New(walletRepo, walletGenerator, app.logger)
 
-	if app.config.KMS.IsEmbedded {
-		app.config.KMS.Server.Port = "14000"
-	}
-
 	srv := httpServer.New(
-		app.config.KMS.Server,
+		app.serverConfig(),
 		app.config.Debug,
 		httpServer.WithRecover(),
 		httpServer.WithLogger(app.logger),
@@ -107,4 +108,14 @@ func (app *App) runWebServer(ctx context.Context) {
 		app.logger.Info().Msg("shutting down http server")
 		return srv.Shutdown(ctx)
 	})
+}
+
+func (app *App) serverConfig() httpServer.Config {
+	cfg := app.config.KMS.Server
+	if app.config.KMS.IsEmbedded {
+		cfg.Address = embeddedKMSAddress
+		cfg.Port = embeddedKMSPort
+	}
+
+	return cfg
 }
