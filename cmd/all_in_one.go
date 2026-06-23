@@ -22,7 +22,7 @@ func allInOne(_ *cobra.Command, _ []string) {
 
 	// "embed" KMS
 	cfg.KMS.IsEmbedded = true
-	cfg.Providers.KmsClient.Host = "localhost:14000"
+	cfg.Providers.KmsClient.Host = "127.0.0.1:14000"
 
 	service := app.New(ctx, cfg)
 	kmsService := kms.NewApp(ctx, cfg)
