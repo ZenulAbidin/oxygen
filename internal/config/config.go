@@ -48,6 +48,8 @@ type Oxygen struct {
 }
 
 type KMS struct {
+	AuthToken string `yaml:"auth_token" env:"KMS_AUTH_TOKEN" env-description:"Shared secret required by the KMS HTTP API"`
+
 	// IsEmbedded indicates that app is running in 'all-in-one' mode.
 	// Not suitable for safety reasons as KMS should operate in isolated environment in order to
 	// keep private keys secure.

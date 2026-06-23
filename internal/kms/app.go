@@ -38,12 +38,19 @@ func NewApp(ctx context.Context, cfg *config.Config) *App {
 }
 
 func (app *App) Run() {
+	app.requireAuthToken()
 	app.connectToDB()
 	app.runWebServer(app.ctx)
 }
 
 func (app *App) Logger() *zerolog.Logger {
 	return app.logger
+}
+
+func (app *App) requireAuthToken() {
+	if app.config.KMS.AuthToken == "" {
+		app.logger.Fatal().Msg("unable to run kms without KMS_AUTH_TOKEN")
+	}
 }
 
 func (app *App) connectToDB() {
@@ -85,7 +92,7 @@ func (app *App) runWebServer(ctx context.Context) {
 		httpServer.WithRecover(),
 		httpServer.WithLogger(app.logger),
 		httpServer.WithBodyDump(),
-		api.SetupRoutes(api.New(kmsService, app.logger)),
+		api.SetupRoutes(api.New(kmsService, app.logger), app.config.KMS.AuthToken),
 	)
 
 	go func() {

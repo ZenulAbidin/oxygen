@@ -5,6 +5,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/oxygenpay/oxygen/internal/auth"
 	"github.com/oxygenpay/oxygen/internal/bus"
@@ -162,7 +163,15 @@ func (loc *Locator) KMSClient() *client.KMSInternalAPI {
 		})
 
 		// transport wrapper
-		kms.SetTransport(log.ClientTransport(kms.Transport))
+		transport := log.ClientTransport(kms.Transport)
+		if loc.config.Providers.KmsClient.AuthToken != "" {
+			transport = &kmsAuthTransport{
+				transport: transport,
+				token:     loc.config.Providers.KmsClient.AuthToken,
+			}
+		}
+
+		kms.SetTransport(transport)
 
 		loc.kmsClient = kms
 	})
@@ -303,4 +312,21 @@ func (loc *Locator) init(key string, f func()) {
 	}
 
 	loc.once[key].Do(f)
+}
+
+const kmsAuthHeader = "X-O2PAY-KMS-TOKEN"
+
+type kmsAuthTransport struct {
+	transport runtime.ClientTransport
+	token     string
+}
+
+func (t *kmsAuthTransport) Submit(op *runtime.ClientOperation) (any, error) {
+	if op.AuthInfo == nil {
+		op.AuthInfo = runtime.ClientAuthInfoWriterFunc(func(req runtime.ClientRequest, _ strfmt.Registry) error {
+			return req.SetHeaderParam(kmsAuthHeader, t.token)
+		})
+	}
+
+	return t.transport.Submit(op)
 }

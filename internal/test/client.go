@@ -17,7 +17,8 @@ type Marshable interface {
 }
 
 type Client struct {
-	handler http.HandlerFunc
+	handler        http.HandlerFunc
+	defaultHeaders map[string]string
 }
 
 func (c *Client) GET() *Request {
@@ -36,12 +37,17 @@ func (c *Client) DELETE() *Request {
 }
 
 func (c *Client) newRequest(method string) *Request {
+	headers := make(map[string]string)
+	for key, value := range c.defaultHeaders {
+		headers[key] = value
+	}
+
 	return &Request{
 		handler: c.handler,
 		method:  method,
 		params:  make(map[string]string),
 		query:   make(map[string]string),
-		headers: make(map[string]string),
+		headers: headers,
 	}
 }
 
@@ -73,6 +79,11 @@ func (r *Request) Query(key, value string) *Request {
 
 func (r *Request) WithToken(token string) *Request {
 	r.headers[middleware.TokenHeader] = token
+	return r
+}
+
+func (r *Request) WithHeader(header, value string) *Request {
+	r.headers[header] = value
 	return r
 }
 
