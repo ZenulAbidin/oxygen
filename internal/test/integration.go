@@ -230,7 +230,7 @@ func NewIntegrationTest(t *testing.T) *IntegrationTest {
 		httpServer.WithMerchantAPI(merchantAPIHandler, authTokenManager),
 		httpServer.WithPaymentAPI(paymentAPIHandler, webConfig),
 		httpServer.WithWebhookAPI(webhookHandler),
-		kmsapi.SetupRoutes(kmsapi.New(kms.Service, &logger)),
+		kmsapi.SetupRoutes(kmsapi.New(kms.Service, &logger), "test-kms-token"),
 	)
 
 	tc := &IntegrationTest{
@@ -256,7 +256,12 @@ func NewIntegrationTest(t *testing.T) *IntegrationTest {
 		},
 		KMS:    kms,
 		server: srv,
-		Client: &Client{handler: srv.Echo().ServeHTTP},
+		Client: &Client{
+			handler: srv.Echo().ServeHTTP,
+			defaultHeaders: map[string]string{
+				"X-O2PAY-KMS-TOKEN": "test-kms-token",
+			},
+		},
 	}
 
 	tc.Clear = &Clear{tc}

@@ -19,9 +19,9 @@ type Handler struct {
 
 const paramWalletID = "walletId"
 
-func SetupRoutes(handler *Handler) httpServer.Opt {
+func SetupRoutes(handler *Handler, authToken string) httpServer.Opt {
 	return func(s *httpServer.Server) {
-		kmsAPI := s.Echo().Group("/api/kms/v1")
+		kmsAPI := s.Echo().Group("/api/kms/v1", Authenticate(authToken))
 
 		kmsAPI.POST("/wallet", handler.Create)
 		kmsAPI.GET("/wallet/:walletId", handler.Get)
