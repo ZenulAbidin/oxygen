@@ -40,6 +40,7 @@ func (m *Must) CreateUser(t *testing.T, params auth.GoogleUser) (*user.User, str
 	if params.Sub == "" {
 		params.Sub = util.Strings.Random(8)
 	}
+	params.EmailVerified = true
 
 	person, err := m.tc.Services.Users.ResolveWithGoogle(m.tc.Context, &params)
 	require.NoError(t, err)

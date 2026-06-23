@@ -17,8 +17,10 @@ func TestService_ResolveWithGoogle(t *testing.T) {
 		t.Run("whitelist disabled", func(t *testing.T) {
 			// ARRANGE
 			g := &auth.GoogleUser{
-				Name:  "u1",
-				Email: "user@gmail.com",
+				Name:          "u1",
+				Sub:           "google-u1",
+				Email:         "user@gmail.com",
+				EmailVerified: true,
 			}
 
 			// ACT
@@ -39,8 +41,10 @@ func TestService_ResolveWithGoogle(t *testing.T) {
 			require.NoError(t, err)
 
 			g := &auth.GoogleUser{
-				Name:  "u2",
-				Email: "user2@gmail.com",
+				Name:          "u2",
+				Sub:           "google-u2",
+				Email:         "user2@gmail.com",
+				EmailVerified: true,
 			}
 
 			// ACT
@@ -52,9 +56,10 @@ func TestService_ResolveWithGoogle(t *testing.T) {
 			t.Run("existing user work", func(t *testing.T) {
 				// ACT
 				u, err := tc.Services.Users.ResolveWithGoogle(tc.Context, &auth.GoogleUser{
-					Name:  existingUser.Name,
-					Sub:   *existingUser.GoogleID,
-					Email: existingUser.Email,
+					Name:          existingUser.Name,
+					Sub:           *existingUser.GoogleID,
+					Email:         existingUser.Email,
+					EmailVerified: false,
 				})
 
 				// ASSERT
@@ -70,14 +75,41 @@ func TestService_ResolveWithGoogle(t *testing.T) {
 
 				// ACT
 				_, err = tc.Services.Users.ResolveWithGoogle(tc.Context, &auth.GoogleUser{
-					Name:  "John",
-					Sub:   "abc123",
-					Email: "hey@o2pay.co",
+					Name:          "John",
+					Sub:           "abc123",
+					Email:         "hey@o2pay.co",
+					EmailVerified: true,
 				})
 
 				// ASSERT
 				assert.NoError(t, err)
 			})
+		})
+
+		t.Run("rejects unverified email for account linking", func(t *testing.T) {
+			// ARRANGE
+			existingUser, _ := tc.Must.CreateUser(t, auth.GoogleUser{
+				Name:          "victim",
+				Sub:           "victim-google-sub",
+				Email:         "victim@gmail.com",
+				EmailVerified: true,
+			})
+
+			// ACT
+			_, err := tc.Services.Users.ResolveWithGoogle(tc.Context, &auth.GoogleUser{
+				Name:          "attacker",
+				Sub:           "attacker-google-sub",
+				Email:         existingUser.Email,
+				EmailVerified: false,
+			})
+
+			// ASSERT
+			assert.ErrorIs(t, err, user.ErrEmailNotVerified)
+
+			unchangedUser, err := tc.Services.Users.GetByID(tc.Context, existingUser.ID)
+			require.NoError(t, err)
+			require.NotNil(t, unchangedUser.GoogleID)
+			assert.Equal(t, *existingUser.GoogleID, *unchangedUser.GoogleID)
 		})
 	})
 }

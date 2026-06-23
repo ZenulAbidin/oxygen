@@ -38,10 +38,11 @@ type User struct {
 }
 
 var (
-	ErrNotFound      = errors.New("user not found")
-	ErrWrongPassword = errors.New("wrong password provided")
-	ErrAlreadyExists = errors.New("user already exists")
-	ErrRestricted    = errors.New("access restricted")
+	ErrNotFound         = errors.New("user not found")
+	ErrWrongPassword    = errors.New("wrong password provided")
+	ErrAlreadyExists    = errors.New("user already exists")
+	ErrRestricted       = errors.New("access restricted")
+	ErrEmailNotVerified = errors.New("google email is not verified")
 )
 
 const (

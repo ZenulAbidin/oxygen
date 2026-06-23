@@ -55,6 +55,8 @@ func (h *Handler) GetCallback(c echo.Context) error {
 	switch {
 	case errors.Is(err, user.ErrRestricted):
 		return common.ValidationErrorResponse(c, "Registration is available by whitelists only")
+	case errors.Is(err, user.ErrEmailNotVerified):
+		return common.ValidationErrorResponse(c, "Google email must be verified")
 	case err != nil:
 		return errors.Wrap(err, "unable to resolve google user")
 	}

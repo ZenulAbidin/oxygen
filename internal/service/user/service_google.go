@@ -14,16 +14,28 @@ import (
 	"github.com/pkg/errors"
 )
 
-func (s *Service) ResolveWithGoogle(ctx context.Context, user *auth.GoogleUser) (*User, error) {
-	entry, err := s.store.GetUserByEmail(ctx, user.Email)
+func (s *Service) ResolveWithGoogle(ctx context.Context, googleUser *auth.GoogleUser) (*User, error) {
+	entry, err := s.store.GetUserByGoogleID(ctx, repository.StringToNullable(googleUser.Sub))
+	switch {
+	case err == nil:
+		return s.updateGoogleUser(ctx, entry.ID, false, googleUser)
+	case !errors.Is(err, pgx.ErrNoRows):
+		return nil, errors.Wrap(err, "unable to get user")
+	}
+
+	if !googleUser.EmailVerified {
+		return nil, ErrEmailNotVerified
+	}
+
+	entry, err = s.store.GetUserByEmail(ctx, googleUser.Email)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return s.registerGoogleUser(ctx, user)
+		return s.registerGoogleUser(ctx, googleUser)
 	case err != nil:
 		return nil, errors.Wrap(err, "unable to get user")
 	}
 
-	return s.updateGoogleUser(ctx, entry.ID, user)
+	return s.updateGoogleUser(ctx, entry.ID, true, googleUser)
 }
 
 func (s *Service) registerGoogleUser(ctx context.Context, user *auth.GoogleUser) (*User, error) {
@@ -54,10 +66,10 @@ func (s *Service) registerGoogleUser(ctx context.Context, user *auth.GoogleUser)
 	return entryToUser(entry)
 }
 
-func (s *Service) updateGoogleUser(ctx context.Context, userID int64, user *auth.GoogleUser) (*User, error) {
+func (s *Service) updateGoogleUser(ctx context.Context, userID int64, setGoogleID bool, user *auth.GoogleUser) (*User, error) {
 	entry, err := s.store.UpdateUser(ctx, repository.UpdateUserParams{
 		ID:              userID,
-		SetGoogleID:     true,
+		SetGoogleID:     setGoogleID,
 		GoogleID:        repository.StringToNullable(user.Sub),
 		Name:            user.Name,
 		ProfileImageUrl: repository.StringToNullable(user.Picture),
