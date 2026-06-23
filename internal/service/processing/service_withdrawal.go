@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const maxUTXOWithdrawalConsolidationSources = 8
+
 // BatchCreateWithdrawals ingests list of withdrawals and creates & broadcasts transactions.
 func (s *Service) BatchCreateWithdrawals(ctx context.Context, withdrawalIDs []int64) (*TransferResult, error) {
 	withdrawals, err := s.payments.ListWithdrawals(ctx, payment.StatusPending, withdrawalIDs)
@@ -155,7 +157,7 @@ func (s *Service) BatchCreateWithdrawals(ctx context.Context, withdrawalIDs []in
 						return nil
 					}
 
-					consolidation := s.createUTXOConsolidations(ctx, currency, withdrawal.IsTest, outboundWithdrawalWallet, candidates)
+					consolidation := s.createUTXOConsolidations(ctx, currency, withdrawal.IsTest, outboundWithdrawalWallet, candidates, withdrawal.Price)
 					for _, tx := range consolidation.CreatedTransactions {
 						result.addTransaction(tx)
 					}
@@ -233,7 +235,7 @@ func (s *Service) resolveUTXOWithdrawalSource(
 		}
 	}
 
-	consolidation := s.createUTXOConsolidations(ctx, currency, isTest, outboundWallet, candidates)
+	consolidation := s.createUTXOConsolidations(ctx, currency, isTest, outboundWallet, candidates, amount)
 	if len(consolidation.CreatedTransactions) > 0 {
 		return nil, nil, consolidation, nil
 	}
@@ -298,16 +300,56 @@ func (s *Service) listInboundUTXOSources(
 	return candidates, nil
 }
 
+func selectUTXOConsolidationCandidates(
+	candidates []utxoWithdrawalSource,
+	targetAmount money.Money,
+) ([]utxoWithdrawalSource, error) {
+	totalAmount, err := targetAmount.Sub(targetAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	selected := make([]utxoWithdrawalSource, 0, maxUTXOWithdrawalConsolidationSources)
+	for _, candidate := range candidates {
+		if len(selected) >= maxUTXOWithdrawalConsolidationSources || totalAmount.GreaterThanOrEqual(targetAmount) {
+			break
+		}
+
+		selected = append(selected, candidate)
+		totalAmount, err = totalAmount.Add(candidate.Balance.Amount)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return selected, nil
+}
+
 func (s *Service) createUTXOConsolidations(
 	ctx context.Context,
 	currency money.CryptoCurrency,
 	isTest bool,
 	outboundWallet *wallet.Wallet,
 	candidates []utxoWithdrawalSource,
+	targetAmount money.Money,
 ) *TransferResult {
 	result := &TransferResult{}
+	consolidatedAmount, err := currency.MakeAmount("0")
+	if err != nil {
+		result.registerErr(errors.Wrap(err, "unable to initialize UTXO consolidation amount"))
+		return result
+	}
+	candidates, err = selectUTXOConsolidationCandidates(candidates, targetAmount)
+	if err != nil {
+		result.registerErr(errors.Wrap(err, "unable to select UTXO consolidation candidates"))
+		return result
+	}
 
 	for _, candidate := range candidates {
+		if consolidatedAmount.GreaterThanOrEqual(targetAmount) {
+			break
+		}
+
 		params := internalTransferInput{
 			SenderWallet:    candidate.Wallet,
 			SenderBalance:   candidate.Balance,
@@ -337,6 +379,11 @@ func (s *Service) createUTXOConsolidations(
 		}
 
 		result.addTransaction(output.Transaction)
+		consolidatedAmount, err = consolidatedAmount.Add(output.Amount)
+		if err != nil {
+			result.registerErr(errors.Wrap(err, "unable to track UTXO consolidation amount"))
+			break
+		}
 	}
 
 	return result
