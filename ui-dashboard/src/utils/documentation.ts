@@ -1,5 +1,5 @@
 const configuredDocumentationURL = import.meta.env.VITE_DOCUMENTATION_URL as string | undefined;
-const documentationBaseURL = (configuredDocumentationURL?.trim() || "http://localhost:8081").replace(/\/+$/, "");
+const documentationBaseURL = (configuredDocumentationURL?.trim() || "/docs/http").replace(/\/+$/, "");
 
 const documentationURLs = {
     home: documentationBaseURL,
